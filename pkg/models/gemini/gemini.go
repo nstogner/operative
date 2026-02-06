@@ -141,6 +141,7 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 
 	// Convert AgentMessages to genai.Content
 	var genaiHistory []*genai.Content
+	toolMap := make(map[string]string)
 
 	for _, msg := range messages {
 		var parts []genai.Part
@@ -149,12 +150,19 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 			case session.ContentTypeText:
 				parts = append(parts, genai.Text(c.Text.Content))
 			case session.ContentTypeToolUse:
+				toolMap[c.ToolUse.ID] = c.ToolUse.Name
 				parts = append(parts, genai.FunctionCall{
 					Name: c.ToolUse.Name,
 					Args: c.ToolUse.Input,
 				})
 			case session.ContentTypeToolResult:
+				name := toolMap[c.ToolResult.ToolUseID]
+				if name == "" {
+					// Fallback if not found (shouldn't happen in valid history)
+					name = sandbox.ToolNameRunIPythonCell
+				}
 				parts = append(parts, genai.FunctionResponse{
+					Name: name,
 					Response: map[string]any{
 						"result": c.ToolResult.Content,
 					},
@@ -166,12 +174,6 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 		if msg.Role == session.RoleAssistant {
 			role = "model"
 		}
-		// FunctionResponse must be 'function' role in some APIs, but Gemini uses 'user' for function results usually.
-		// Actually, standard is: User sends FunctionCall -> Model. Model sends FunctionCall steps. User sends FunctionResponse.
-		// So FunctionResponse role is indeed 'user' contextually (or 'function' if supported).
-		// The Go SDK docs say: "For FunctionResponse, use "user" role or "function" role?"
-		// Most examples use 'user' for function responses.
-		// If the message contains ToolResult, it's effectively from the 'environment' (User side).
 		if msg.Role == session.RoleTool {
 			role = "user"
 		}
@@ -194,20 +196,23 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 	lastMsg := messages[len(messages)-1]
 	// Convert last message parts
 	var lastParts []genai.Part
-	// Same conversion logic for the new message
-	// Usually the last message is just Text (User query) or ToolResult.
 	for _, c := range lastMsg.Content {
 		switch c.Type {
 		case session.ContentTypeText:
 			lastParts = append(lastParts, genai.Text(c.Text.Content))
 		case session.ContentTypeToolUse:
+			toolMap[c.ToolUse.ID] = c.ToolUse.Name
 			lastParts = append(lastParts, genai.FunctionCall{
 				Name: c.ToolUse.Name,
 				Args: c.ToolUse.Input,
 			})
 		case session.ContentTypeToolResult:
+			name := toolMap[c.ToolResult.ToolUseID]
+			if name == "" {
+				name = sandbox.ToolNameRunIPythonCell
+			}
 			lastParts = append(lastParts, genai.FunctionResponse{
-				Name: sandbox.ToolNameRunIPythonCell,
+				Name: name,
 				Response: map[string]any{
 					"result": c.ToolResult.Content,
 				},

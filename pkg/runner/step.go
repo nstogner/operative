@@ -62,6 +62,15 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 
 func stepCallModel(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, entries []session.Entry) error {
 	var contextMessages []models.AgentMessage
+	// 1. Prepend System Prompt (as User message or specific system role if supported)
+	contextMessages = append(contextMessages, models.AgentMessage{
+		Role: session.RoleUser,
+		Content: []session.Content{{
+			Type: session.ContentTypeText,
+			Text: &session.TextContent{Content: "System: You are a helpful assistant. Please strictly use Markdown for all your responses."},
+		}},
+	})
+
 	for _, entry := range entries {
 		if entry.Message != nil {
 			contextMessages = append(contextMessages, models.AgentMessage{

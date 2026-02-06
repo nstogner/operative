@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
@@ -80,6 +81,9 @@ type model struct {
 	availableModels   []string
 	availableSessions []session.SessionInfo
 	cursor            int
+	listOffset        int
+	width             int
+	height            int
 	err               error
 
 	// UI Components
@@ -88,6 +92,7 @@ type model struct {
 
 	// Data
 	messages []session.Entry
+	renderer *glamour.TermRenderer
 }
 
 func initialModel(ctx context.Context, provider models.ModelProvider, manager session.Manager, modelsList []string) model {
@@ -107,6 +112,12 @@ func initialModel(ctx context.Context, provider models.ModelProvider, manager se
 	vp := viewport.New(80, 20)
 	vp.SetContent("Welcome! Select an option.")
 
+	// Use "light" style to avoid terminal queries that leak into input
+	r, _ := glamour.NewTermRenderer(
+		glamour.WithStandardStyle("light"),
+		glamour.WithWordWrap(80),
+	)
+
 	return model{
 		ctx:             ctx,
 		modelProvider:   provider,
@@ -115,6 +126,7 @@ func initialModel(ctx context.Context, provider models.ModelProvider, manager se
 		state:           stateMenu,
 		viewport:        vp,
 		textarea:        ta,
+		renderer:        r,
 	}
 }
 
@@ -132,13 +144,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
 		m.viewport.Width = msg.Width
 		m.textarea.SetWidth(msg.Width)
+		m.viewport.Height = msg.Height - m.textarea.Height() - 2 // Header + Margin
 		m.viewport.Height = msg.Height - m.textarea.Height() - 2 // Header + Margin
 		if m.viewport.Height < 0 {
 			m.viewport.Height = 0
 		}
 		m.viewport.YPosition = 2
+
+		// Recreate renderer with new width
+		// Using standard style avoids "Querying terminal..." escape sequences leaking into input
+		m.renderer, _ = glamour.NewTermRenderer(
+			glamour.WithStandardStyle("light"),
+			glamour.WithWordWrap(m.width-4),
+		)
+
+		// Re-clamp listOffset to ensure cursor remains visible after resize
+		maxViewable := m.height - 7
+		if maxViewable < 1 {
+			maxViewable = 1
+		}
+		if m.cursor < m.listOffset {
+			m.listOffset = m.cursor
+		}
+		if m.cursor >= m.listOffset+maxViewable {
+			m.listOffset = m.cursor - maxViewable + 1
+		}
+		if m.listOffset < 0 {
+			m.listOffset = 0
+		}
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -150,6 +187,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// New Session
 					m.state = stateSelectingModel
 					m.cursor = 0
+					m.listOffset = 0
 				} else {
 					// Continue Session
 					sessions, err := m.sessManager.List()
@@ -161,6 +199,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.availableSessions = sessions
 						m.state = stateSelectingSession
 						m.cursor = 0
+						m.listOffset = 0
 					}
 				}
 			} else if m.state == stateSelectingModel {
@@ -177,6 +216,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyUp:
 			if m.cursor > 0 {
 				m.cursor--
+				if m.cursor < m.listOffset {
+					m.listOffset = m.cursor
+				}
 			}
 		case tea.KeyDown:
 			var maxCursor int
@@ -190,6 +232,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.cursor < maxCursor {
 				m.cursor++
+				// Calculate max viewable items (Total height - header - footer)
+				// Header: ~3 lines, Footer: ~3 lines
+				maxViewable := m.height - 7
+				if maxViewable < 1 {
+					maxViewable = 1
+				}
+				if m.cursor >= m.listOffset+maxViewable {
+					m.listOffset = m.cursor - maxViewable + 1
+				}
 			}
 		}
 
@@ -226,67 +277,99 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	if m.state == stateMenu {
-		var s strings.Builder
-		s.WriteString(titleStyle.Render("Main Menu"))
-		s.WriteString("\n\n")
+		header := titleStyle.Render("Main Menu")
 
 		options := []string{"New Session", "Continue Session"}
+		var optionsView []string
 		for i, choice := range options {
 			cursor := " "
 			if m.cursor == i {
 				cursor = ">"
 				choice = selectedItemStyle.Render(choice)
 			}
-			s.WriteString(fmt.Sprintf("%s %s\n", cursorStyle.Render(cursor), choice))
+			optionsView = append(optionsView, fmt.Sprintf("%s %s", cursorStyle.Render(cursor), choice))
 		}
-		s.WriteString("\nPress Enter to select, Esc to quit.\n")
-		return s.String()
+
+		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
+		footer := "Press Enter to select, Esc to quit."
+
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
 	}
 
 	if m.state == stateSelectingSession {
-		var s strings.Builder
-		s.WriteString(titleStyle.Render("Select Session"))
-		s.WriteString("\n\n")
+		header := titleStyle.Render("Select Session")
 
-		for i, choice := range m.availableSessions {
+		maxViewable := m.height - 7
+		if maxViewable < 1 {
+			maxViewable = 1
+		}
+
+		start := m.listOffset
+		end := start + maxViewable
+		if end > len(m.availableSessions) {
+			end = len(m.availableSessions)
+		}
+
+		var optionsView []string
+		for i := start; i < end; i++ {
+			choice := m.availableSessions[i]
 			cursor := " "
 			line := fmt.Sprintf("%s (%s)", choice.ID, choice.Modified.Format(time.RFC822))
 			if m.cursor == i {
 				cursor = ">"
 				line = selectedItemStyle.Render(line)
 			}
-			s.WriteString(fmt.Sprintf("%s %s\n", cursorStyle.Render(cursor), line))
+			optionsView = append(optionsView, fmt.Sprintf("%s %s", cursorStyle.Render(cursor), line))
 		}
-		s.WriteString("\nPress Enter to select, Esc to quit.\n")
-		return s.String()
+
+		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
+		footer := "Press Enter to select, Esc to quit."
+
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
 	}
 
 	if m.state == stateSelectingModel {
-		var s strings.Builder
-		s.WriteString(titleStyle.Render("Select Model"))
-		s.WriteString("\n\n")
+		header := titleStyle.Render("Select Model")
 
-		for i, choice := range m.availableModels {
+		maxViewable := m.height - 7
+		if maxViewable < 1 {
+			maxViewable = 1
+		}
+
+		start := m.listOffset
+		end := start + maxViewable
+		if end > len(m.availableModels) {
+			end = len(m.availableModels)
+		}
+
+		var optionsView []string
+		for i := start; i < end; i++ {
+			choice := m.availableModels[i]
 			cursor := " "
 			if m.cursor == i {
 				cursor = ">"
 				choice = selectedItemStyle.Render(choice)
 			}
-			s.WriteString(fmt.Sprintf("%s %s\n", cursorStyle.Render(cursor), choice))
+			optionsView = append(optionsView, fmt.Sprintf("%s %s", cursorStyle.Render(cursor), choice))
 		}
-		s.WriteString("\nPress Enter to select, Esc to quit.\n")
-		return s.String()
+
+		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
+		footer := "Press Enter to select, Esc to quit."
+
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
 	}
 
 	var errorView string
 	if m.err != nil {
-		errorView = errorStyle.Render(fmt.Sprintf("Error: %v", m.err)) + "\n\n"
+		errorView = errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
-	return fmt.Sprintf(
-		"%s\n\n%s\n\n%s%s",
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
 		titleStyle.Render("Gemini Agent"),
+		"",
 		m.viewport.View(),
+		"",
 		errorView,
 		m.textarea.View(),
 	)
@@ -416,20 +499,53 @@ func (m model) reloadMessages() tea.Cmd {
 
 		slog.Info("Loaded entries from session", "count", len(entries))
 
+		slog.Info("Loaded entries from session", "count", len(entries))
+
 		var sb strings.Builder
 		for _, e := range entries {
 			if e.Message != nil {
+				if len(e.Message.Content) == 0 {
+					continue
+				}
 				role := string(e.Message.Role)
 				var content string
 				if len(e.Message.Content) > 0 {
 					if e.Message.Content[0].Text != nil {
-						content = e.Message.Content[0].Text.Content
+						rawContent := e.Message.Content[0].Text.Content
+						// Check if it's potentially markdown or just plain text
+						// Use the persistent renderer
+						var rendered string
+						var err error
+						if m.renderer != nil {
+							rendered, err = m.renderer.Render(rawContent)
+						} else {
+							err = fmt.Errorf("renderer not ready")
+						}
+
+						if err != nil {
+							content = rawContent // Fallback
+						} else {
+							content = rendered
+						}
 					} else if e.Message.Content[0].ToolUse != nil {
 						// Render tool usage
-						content = fmt.Sprintf("[Tool Usage: %s]", e.Message.Content[0].ToolUse.Name)
+						toolUse := e.Message.Content[0].ToolUse
+						content = fmt.Sprintf("[Tool Usage: %s]", toolUse.Name)
+						if code, ok := toolUse.Input["code"].(string); ok {
+							content += fmt.Sprintf("\n\n%s", code)
+						}
+					} else if e.Message.Content[0].ToolResult != nil {
+						// Render tool result
+						result := e.Message.Content[0].ToolResult
+						status := "Success"
+						if result.IsError {
+							status = "Error"
+						}
+						content = fmt.Sprintf("[%s: %s]\n%s", status, result.ToolUseID, result.Content)
 					}
 				}
 
+				// Titles
 				if e.Message.Role == session.RoleUser {
 					sb.WriteString(userStyle.Render("User: "))
 				} else if e.Message.Role == session.RoleAssistant {
@@ -437,9 +553,11 @@ func (m model) reloadMessages() tea.Cmd {
 				} else {
 					sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(role + ": "))
 				}
+				sb.WriteString("\n")
 
-				sb.WriteString(messageStyle.Render(content))
-				sb.WriteString("\n\n")
+				// Content - glamour adds its own margins usually, but let's just append
+				sb.WriteString(content)
+				sb.WriteString("\n")
 			}
 		}
 
