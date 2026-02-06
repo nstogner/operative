@@ -1,0 +1,4 @@
+/sessions/*.jsonl
+/agent.log
+/reference/*
+/main

@@ -1,0 +1,62 @@
+# Task List
+
+- [x] Analyze `SessionManager` in `./reference/pi-mono` <!-- id: 0 -->
+    - [x] Locate source files <!-- id: 1 -->
+    - [x] Understand core functionality (lifecycle, storage, security) <!-- id: 2 -->
+    - [x] Identify backwards compatible features to exclude <!-- id: 3 -->
+- [x] Create Design Document <!-- id: 4 -->
+    - [x] Define Go struct/interface definitions <!-- id: 5 -->
+    - [x] Outline methods (Create, Get, Validate, Revoke) <!-- id: 6 -->
+    - [x] Define storage mechanism (Redis?) <!-- id: 7 -->
+    - [x] Review with user <!-- id: 8 -->
+- [x] Refine Design Document <!-- id: 9 -->
+    - [x] Define Content interface examples and File handling <!-- id: 10 -->
+    - [x] Map Provider formats (OpenAI, Google, Anthropic) <!-- id: 11 -->
+    - [x] Create example .jsonl files <!-- id: 12 -->
+- [x] Implement Strict Typing Strategy <!-- id: 13 -->
+    - [x] Update `MessageEntry` to use `Content` type alias <!-- id: 14 -->
+    - [x] Define "Fat" `Block` struct <!-- id: 15 -->
+    - [x] Add `UnmarshalJSON` logic for normalization <!-- id: 16 -->
+    - [x] Add `MarshalJSON` logic for flat serialization delegation <!-- id: 22 -->
+- [x] Cross-Reference with Legacy Implementation <!-- id: 17 -->
+    - [x] Analyze `messages.ts` for extended types <!-- id: 18 -->
+    - [x] Identify missing entry types (Thinking, Model, Label, SessionInfo) <!-- id: 19 -->
+    - [x] Map legacy fields to new structs <!-- id: 20 -->
+    - [x] Update Design Doc with missing types <!-- id: 21 -->
+- [x] Simplify JSON Serialization <!-- id: 23 -->
+    - [x] Remove `Block.MarshalJSON` and `Block.UnmarshalJSON` <!-- id: 24 -->
+    - [x] Update `Block` struct definition (standard tagging) <!-- id: 25 -->
+    - [x] Update JSON examples to show nested format <!-- id: 26 -->
+- [x] Refine TextBlock Naming <!-- id: 27 -->
+    - [x] Rename `TextBlock.Text` to `Content` in Design Doc <!-- id: 28 -->
+    - [x] Update JSON examples in Design Doc <!-- id: 29 -->
+    - [x] Update `simple_session.jsonl` and `complex_session.jsonl` <!-- id: 30 -->
+- [x] Refine JSON Keys (Snake Case) <!-- id: 31 -->
+    - [x] Update structs to use `snake_case` tags (`parent_id`, etc.) <!-- id: 32 -->
+    - [x] Remove `Content.UnmarshalJSON` <!-- id: 33 -->
+    - [x] Update JSON examples in Design Doc and Artifacts <!-- id: 34 -->
+- [x] Refine Entry Structure (Tagged Union) <!-- id: 49 -->
+    - [x] Update `Entry` struct to use Tagged Union pattern <!-- id: 50 -->
+    - [x] Define Payload structs (`MessagePayload`, `ModelChangePayload`, etc.) <!-- id: 51 -->
+    - [x] Update JSON examples in Design Doc and Artifacts <!-- id: 52 -->
+- [x] Finalize Naming <!-- id: 53 -->
+    - [x] Rename `*Payload` types to `*Entry` in Design Doc <!-- id: 54 -->
+    - [x] Update Implementation Plan match <!-- id: 55 -->
+
+# Phase 2: Implementation
+
+- [x] Initialize Project <!-- id: 35 -->
+    - [x] `go mod init` <!-- id: 36 -->
+    - [x] Create `pkg/session` directory <!-- id: 37 -->
+- [x] Implement Core Data Structures (`structs.go`) <!-- id: 38 -->
+    - [x] Define Entries, Headers, and Content types <!-- id: 39 -->
+    - [x] Add `marshal/unmarshal` tests <!-- id: 40 -->
+- [x] Implement Session Logic (`session.go`) <!-- id: 41 -->
+    - [x] `NewSession` and Loading <!-- id: 42 -->
+    - [x] `Append` method (thread-safe) <!-- id: 43 -->
+    - [x] `Branch` method <!-- id: 44 -->
+- [x] Implement Manager Logic (`manager.go`) <!-- id: 45 -->
+    - [x] `LoadSession`, `SaveSession` <!-- id: 46 -->
+- [ ] Verification <!-- id: 47 -->
+    - [ ] Run full integration test suite <!-- id: 48 -->
+

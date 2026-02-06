@@ -1,0 +1,3 @@
+# Overall Architecture
+
+CLI --create-session-and-append-message--> SessionManager --queue--> Agent (Model + Tool calls) --> SessionManager --queue--> Agent ...

@@ -1,0 +1,81 @@
+?   	github.com/mariozechner/coding-agent/session/pkg/session/jsonl	[no test files]
+=== RUN   TestSession_AppendAndContext
+
+--- File: eb1c06ce-fe98-4b36-9e57-c5b214347a70.jsonl ---
+{"type":"session","id":"eb1c06ce-fe98-4b36-9e57-c5b214347a70","version":1,"timestamp":"2026-02-03T16:33:40.11543-05:00"}
+{"type":"message","id":"1b67a211-c756-45e8-85f1-287794e5797e","parent_id":null,"timestamp":"2026-02-03T16:33:40.116289-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Hello"}}]}}
+{"type":"message","id":"753946d6-8fa3-4e5f-91ae-6f6620962dc4","parent_id":"1b67a211-c756-45e8-85f1-287794e5797e","timestamp":"2026-02-03T16:33:40.116584-05:00","message":{"role":"assistant","content":[{"type":"text","text":{"content":"Hi"}}]}}
+{"type":"message","id":"47ea32ad-983a-4f89-90ae-f1f0f3a8a505","parent_id":"1b67a211-c756-45e8-85f1-287794e5797e","timestamp":"2026-02-03T16:33:40.116623-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"New branch"}}]}}
+{"type":"compaction","id":"57b80df8-f5cd-42cc-8727-e8be86e9700c","parent_id":"47ea32ad-983a-4f89-90ae-f1f0f3a8a505","timestamp":"2026-02-03T16:33:40.116654-05:00","compaction":{"summary":"Summary","first_kept_entry_id":"47ea32ad-983a-4f89-90ae-f1f0f3a8a505","tokens_before":100}}
+{"type":"message","id":"38cb3dd7-111a-4c98-a798-a6f981b881ed","parent_id":"57b80df8-f5cd-42cc-8727-e8be86e9700c","timestamp":"2026-02-03T16:33:40.116711-05:00","message":{"role":"assistant","content":[{"type":"text","text":{"content":"After compaction"}}]}}
+
+-----------------
+--- PASS: TestSession_AppendAndContext (0.00s)
+=== RUN   TestSession_Persistence
+
+--- File: 672ce118-ece1-4975-9520-4540da5d2d9b.jsonl ---
+{"type":"session","id":"672ce118-ece1-4975-9520-4540da5d2d9b","version":1,"timestamp":"2026-02-03T16:33:40.121353-05:00"}
+{"type":"message","id":"000e9826-9d3a-4903-90be-c467ff345fea","parent_id":null,"timestamp":"2026-02-03T16:33:40.121612-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Store me"}}]}}
+
+-----------------
+--- PASS: TestSession_Persistence (0.01s)
+=== RUN   TestSession_MetadataChanges
+
+--- File: 2b218ac2-28d3-4aed-8a0f-5a915b8ed4b4.jsonl ---
+{"type":"session","id":"2b218ac2-28d3-4aed-8a0f-5a915b8ed4b4","version":1,"timestamp":"2026-02-03T16:33:40.124747-05:00"}
+{"type":"thinking_level","id":"1da8a3a9-1f05-484f-a2c9-16f85d61f4c2","parent_id":null,"timestamp":"2026-02-03T16:33:40.124864-05:00","thinking_level":{"thinking_level":"high"}}
+{"type":"model_change","id":"f30e6f2d-0f73-4952-9dfa-3f6c4610970e","parent_id":"1da8a3a9-1f05-484f-a2c9-16f85d61f4c2","timestamp":"2026-02-03T16:33:40.124931-05:00","model_change":{"provider":"openai","model_id":"gpt-4o"}}
+{"type":"message","id":"e095f895-b452-4b5b-b374-2b0722dbf6b4","parent_id":"f30e6f2d-0f73-4952-9dfa-3f6c4610970e","timestamp":"2026-02-03T16:33:40.124953-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Configured?"}}]}}
+
+-----------------
+--- PASS: TestSession_MetadataChanges (0.00s)
+=== RUN   TestSession_LabelsAndTree
+
+--- File: b7f98945-be5a-4743-9d61-71c5fa255055.jsonl ---
+{"type":"session","id":"b7f98945-be5a-4743-9d61-71c5fa255055","version":1,"timestamp":"2026-02-03T16:33:40.126572-05:00"}
+{"type":"message","id":"f1fbaa13-15f6-41bc-8cf4-06999915edfa","parent_id":null,"timestamp":"2026-02-03T16:33:40.126641-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"One"}}]}}
+{"type":"label","id":"ddc1f098-c71a-47bc-8517-a28d1c4dcbaf","parent_id":"f1fbaa13-15f6-41bc-8cf4-06999915edfa","timestamp":"2026-02-03T16:33:40.126685-05:00","label":{"target_id":"f1fbaa13-15f6-41bc-8cf4-06999915edfa","label":"start"}}
+{"type":"message","id":"9719b4e6-fe15-43ad-8abd-522093802388","parent_id":"ddc1f098-c71a-47bc-8517-a28d1c4dcbaf","timestamp":"2026-02-03T16:33:40.126718-05:00","message":{"role":"assistant","content":[{"type":"text","text":{"content":"Two"}}]}}
+
+-----------------
+--- PASS: TestSession_LabelsAndTree (0.00s)
+=== RUN   TestSession_BranchingAdvanced
+
+--- File: 901aac02-872b-4296-ae48-3acae3df667d.jsonl ---
+{"type":"session","id":"901aac02-872b-4296-ae48-3acae3df667d","version":1,"parent_session":"e4a2c314-805f-45e5-82dc-d304f5ef6fb1","timestamp":"2026-02-03T16:33:40.128691-05:00"}
+{"type":"message","id":"d422ee0d-1a35-4cdb-84e9-4bba7d436a43","parent_id":null,"timestamp":"2026-02-03T16:33:40.128295-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Root"}}]}}
+
+-----------------
+
+--- File: e4a2c314-805f-45e5-82dc-d304f5ef6fb1.jsonl ---
+{"type":"session","id":"e4a2c314-805f-45e5-82dc-d304f5ef6fb1","version":1,"timestamp":"2026-02-03T16:33:40.128171-05:00"}
+{"type":"message","id":"d422ee0d-1a35-4cdb-84e9-4bba7d436a43","parent_id":null,"timestamp":"2026-02-03T16:33:40.128295-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Root"}}]}}
+{"type":"message","id":"62162cc6-be19-44b9-a9ea-36bab71c8621","parent_id":"d422ee0d-1a35-4cdb-84e9-4bba7d436a43","timestamp":"2026-02-03T16:33:40.128368-05:00","message":{"role":"assistant","content":[{"type":"text","text":{"content":"Path A"}}]}}
+{"type":"branch_summary","id":"7e819920-0aa0-41f6-a698-287137cab921","parent_id":"d422ee0d-1a35-4cdb-84e9-4bba7d436a43","timestamp":"2026-02-03T16:33:40.128388-05:00","branch_summary":{"summary":"Summarizing Path A","from_id":"d422ee0d-1a35-4cdb-84e9-4bba7d436a43"}}
+
+-----------------
+--- PASS: TestSession_BranchingAdvanced (0.01s)
+=== RUN   TestManager_Extended
+
+--- File: 06ddb3ab-9871-4dc9-b740-612bb071801e.jsonl ---
+{"type":"session","id":"06ddb3ab-9871-4dc9-b740-612bb071801e","version":1,"timestamp":"2026-02-03T16:33:40.140875-05:00"}
+{"type":"message","id":"5ad8530c-5927-45c0-87fc-b391e3fbb26b","parent_id":null,"timestamp":"2026-02-03T16:33:40.141224-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Source"}}]}}
+
+-----------------
+
+--- File: c763f57b-a1b1-42a9-844d-7da8f0e03382.jsonl ---
+{"type":"session","id":"c763f57b-a1b1-42a9-844d-7da8f0e03382","version":1,"parent_session":"06ddb3ab-9871-4dc9-b740-612bb071801e","timestamp":"2026-02-03T16:33:40.163597-05:00"}
+{"type":"message","id":"5ad8530c-5927-45c0-87fc-b391e3fbb26b","parent_id":null,"timestamp":"2026-02-03T16:33:40.141224-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Source"}}]}}
+
+-----------------
+--- PASS: TestManager_Extended (0.06s)
+=== RUN   TestSession_CustomEntries
+
+--- File: 858b233a-7c24-4573-8c6a-de1272b13bb9.jsonl ---
+{"type":"session","id":"858b233a-7c24-4573-8c6a-de1272b13bb9","version":1,"timestamp":"2026-02-03T16:33:40.194565-05:00"}
+{"type":"custom","id":"75b4bb58-7dcb-4213-addf-43afd2875a38","parent_id":null,"timestamp":"2026-02-03T16:33:40.194713-05:00","custom":{"custom_type":"my-ext","data":{"count":42,"key":"value"}}}
+
+-----------------
+--- PASS: TestSession_CustomEntries (0.00s)
+PASS
+ok  	github.com/mariozechner/coding-agent/session/pkg/session	0.922s
