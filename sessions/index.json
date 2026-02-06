@@ -1,0 +1,28 @@
+{
+  "sessions": [
+    {
+      "id": "d4b140e6-a1b1-41e7-b1c2-2949edc1c63b",
+      "path": "sessions/d4b140e6-a1b1-41e7-b1c2-2949edc1c63b.jsonl",
+      "created": "2026-02-05T21:05:42.875086-05:00",
+      "modified": "2026-02-05T21:05:42.875086-05:00"
+    },
+    {
+      "id": "0f9188c3-3c11-46a7-9618-a3fbaffe4e40",
+      "path": "sessions/0f9188c3-3c11-46a7-9618-a3fbaffe4e40.jsonl",
+      "created": "2026-02-05T21:07:20.885526-05:00",
+      "modified": "2026-02-05T21:07:20.885526-05:00"
+    },
+    {
+      "id": "7861eb0e-da9e-4bd2-90ca-404c0bccfae3",
+      "path": "sessions/7861eb0e-da9e-4bd2-90ca-404c0bccfae3.jsonl",
+      "created": "2026-02-05T21:31:23.211829-05:00",
+      "modified": "2026-02-05T21:31:23.211829-05:00"
+    },
+    {
+      "id": "8d00bf74-6c7c-4c37-a333-4b29c830935e",
+      "path": "sessions/8d00bf74-6c7c-4c37-a333-4b29c830935e.jsonl",
+      "created": "2026-02-05T21:31:50.0165-05:00",
+      "modified": "2026-02-05T21:31:50.0165-05:00"
+    }
+  ]
+}

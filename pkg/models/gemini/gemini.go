@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/google/generative-ai-go/genai"
+	"github.com/google/uuid"
 	"github.com/mariozechner/coding-agent/session/pkg/models"
+	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
@@ -105,11 +107,6 @@ func (m *GeminiModel) List(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		slog.Debug("Found Gemini model", "name", model.Name)
-		// model.Name typically looks like "models/gemini-pro"
-		// We might want to strip "models/" prefix or keep it depending on what Stream needs.
-		// The error message "models/gemini-1.5-flash is not found" implies it was looked up AS "models/gemini-1.5-flash".
-		// If we pass "gemini-1.5-flash" to GenerativeModel, the client might use it as is.
-		// Let's just return the raw name from the API for now to see what they look like.
 		names = append(names, model.Name)
 	}
 	return names, nil
@@ -119,6 +116,28 @@ func (m *GeminiModel) List(ctx context.Context) ([]string, error) {
 func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []models.AgentMessage) (models.ModelStream, error) {
 	slog.Debug("Gemini.Stream: Request Parameters", "model", modelName, "messageCount", len(messages))
 	gm := m.client.GenerativeModel(modelName)
+
+	// Configure Tools
+	gm.Tools = []*genai.Tool{
+		{
+			FunctionDeclarations: []*genai.FunctionDeclaration{
+				{
+					Name:        sandbox.ToolNameRunIPythonCell,
+					Description: "Run a cell of code in the IPython kernel. Returns the result of running the cell.",
+					Parameters: &genai.Schema{
+						Type: genai.TypeObject,
+						Properties: map[string]*genai.Schema{
+							"code": {
+								Type:        genai.TypeString,
+								Description: "The code to run.",
+							},
+						},
+						Required: []string{"code"},
+					},
+				},
+			},
+		},
+	}
 
 	// Convert AgentMessages to genai.Content
 	var genaiHistory []*genai.Content
@@ -130,15 +149,31 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 			case session.ContentTypeText:
 				parts = append(parts, genai.Text(c.Text.Content))
 			case session.ContentTypeToolUse:
-				// Map tool calls if we had them defined in the model.
+				parts = append(parts, genai.FunctionCall{
+					Name: c.ToolUse.Name,
+					Args: c.ToolUse.Input,
+				})
 			case session.ContentTypeToolResult:
-				// Map tool results
+				parts = append(parts, genai.FunctionResponse{
+					Response: map[string]any{
+						"result": c.ToolResult.Content,
+					},
+				})
 			}
 		}
 
 		role := "user"
 		if msg.Role == session.RoleAssistant {
-			role = "model" // Gemini uses 'model' for assistant
+			role = "model"
+		}
+		// FunctionResponse must be 'function' role in some APIs, but Gemini uses 'user' for function results usually.
+		// Actually, standard is: User sends FunctionCall -> Model. Model sends FunctionCall steps. User sends FunctionResponse.
+		// So FunctionResponse role is indeed 'user' contextually (or 'function' if supported).
+		// The Go SDK docs say: "For FunctionResponse, use "user" role or "function" role?"
+		// Most examples use 'user' for function responses.
+		// If the message contains ToolResult, it's effectively from the 'environment' (User side).
+		if msg.Role == session.RoleTool {
+			role = "user"
 		}
 
 		if len(parts) > 0 {
@@ -149,28 +184,34 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 		}
 	}
 
-	slog.Debug("Converted messages to GenAI history", "historyLen", len(genaiHistory))
-	for i, h := range genaiHistory {
-		slog.Debug("History item", "index", i, "role", h.Role, "partsLen", len(h.Parts))
-	}
-
+	// Create chat session
 	cs := gm.StartChat()
 	if len(genaiHistory) > 0 {
+		// All but last
 		cs.History = genaiHistory[:len(genaiHistory)-1]
 	}
 
 	lastMsg := messages[len(messages)-1]
+	// Convert last message parts
 	var lastParts []genai.Part
+	// Same conversion logic for the new message
+	// Usually the last message is just Text (User query) or ToolResult.
 	for _, c := range lastMsg.Content {
-		if c.Type == session.ContentTypeText {
+		switch c.Type {
+		case session.ContentTypeText:
 			lastParts = append(lastParts, genai.Text(c.Text.Content))
-		}
-	}
-
-	slog.Debug("Sending message stream", "lastPartsLen", len(lastParts))
-	for i, p := range lastParts {
-		if txt, ok := p.(genai.Text); ok {
-			slog.Debug("Part", "index", i, "text", string(txt))
+		case session.ContentTypeToolUse:
+			lastParts = append(lastParts, genai.FunctionCall{
+				Name: c.ToolUse.Name,
+				Args: c.ToolUse.Input,
+			})
+		case session.ContentTypeToolResult:
+			lastParts = append(lastParts, genai.FunctionResponse{
+				Name: sandbox.ToolNameRunIPythonCell,
+				Response: map[string]any{
+					"result": c.ToolResult.Content,
+				},
+			})
 		}
 	}
 
@@ -185,10 +226,10 @@ type geminiStream struct {
 
 func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 	var fullText strings.Builder
+	var toolCalls []session.Content
 
 	slog.Debug("Aggregating Gemini response stream")
 
-	// Iterate through the stream to aggregate response
 	for {
 		resp, err := s.iter.Next()
 		if err == iterator.Done {
@@ -203,23 +244,34 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 				for _, part := range cand.Content.Parts {
 					if txt, ok := part.(genai.Text); ok {
 						fullText.WriteString(string(txt))
+					} else if fc, ok := part.(genai.FunctionCall); ok {
+						toolCalls = append(toolCalls, session.Content{
+							Type: session.ContentTypeToolUse,
+							ToolUse: &session.ToolUseContent{
+								ID:    "call-" + uuid.New().String(), // Generate ID
+								Name:  fc.Name,
+								Input: fc.Args,
+							},
+						})
 					}
 				}
 			}
 		}
 	}
 
-	msg := models.AgentMessage{
-		Role: session.RoleAssistant,
-		Content: []session.Content{
-			{
-				Type: session.ContentTypeText,
-				Text: &session.TextContent{Content: fullText.String()},
-			},
-		},
+	content := []session.Content{}
+	if fullText.Len() > 0 {
+		content = append(content, session.Content{
+			Type: session.ContentTypeText,
+			Text: &session.TextContent{Content: fullText.String()},
+		})
 	}
+	content = append(content, toolCalls...)
 
-	slog.Debug("Gemini.FullMessage: Response Struct", "role", msg.Role, "contentLen", len(fullText.String()))
+	msg := models.AgentMessage{
+		Role:    session.RoleAssistant,
+		Content: content,
+	}
 
 	return msg, nil
 }

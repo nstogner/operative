@@ -2,3 +2,4 @@
 /agent.log
 /reference/*
 /main
+/.env

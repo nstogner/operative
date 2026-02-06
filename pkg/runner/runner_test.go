@@ -8,7 +8,6 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
 	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
-	"github.com/mariozechner/coding-agent/session/pkg/tools"
 )
 
 // MockModel for testing
@@ -46,8 +45,7 @@ func TestRunnerIntegration(t *testing.T) {
 	mgr := jsonl.NewManager(dir)
 
 	mockModel := &MockModel{Response: "Response from Agent"}
-	tr := tools.NewRegistry()
-	r := New(mgr, mockModel, "mock-model", tr)
+	r := New(mgr, mockModel, "mock-model", nil)
 
 	// 2. Start Runner in background
 	ctx, cancel := context.WithCancel(context.Background())

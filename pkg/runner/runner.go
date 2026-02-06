@@ -6,26 +6,26 @@ import (
 	"log/slog"
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
+	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/tools"
 )
 
 // Runner coordinates the execution of agents based on session events.
 type Runner struct {
-	manager   session.Manager
-	model     models.ModelProvider
-	modelName string
-	tools     *tools.Registry
-	ErrorChan chan error
+	manager        session.Manager
+	model          models.ModelProvider
+	modelName      string
+	sandboxManager sandbox.Manager
+	ErrorChan      chan error
 }
 
-func New(manager session.Manager, model models.ModelProvider, modelName string, toolRegistry *tools.Registry) *Runner {
+func New(manager session.Manager, model models.ModelProvider, modelName string, sandboxManager sandbox.Manager) *Runner {
 	return &Runner{
-		manager:   manager,
-		model:     model,
-		modelName: modelName,
-		tools:     toolRegistry,
-		ErrorChan: make(chan error, 10),
+		manager:        manager,
+		model:          model,
+		modelName:      modelName,
+		sandboxManager: sandboxManager,
+		ErrorChan:      make(chan error, 10),
 	}
 }
 
@@ -45,7 +45,7 @@ func (r *Runner) Start(ctx context.Context) error {
 				continue
 			}
 
-			if err := RunStep(ctx, sess, r.modelName, r.model, r.tools); err != nil {
+			if err := RunStep(ctx, sess, r.modelName, r.model, r.sandboxManager); err != nil {
 				slog.Error("Error running step for session", "sessionID", sessionID, "error", err)
 				select {
 				case r.ErrorChan <- err:

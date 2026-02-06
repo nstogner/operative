@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,65 @@ func NewManager(dir string) *Manager {
 	}
 	go m.broadcastLoop()
 	return m
+}
+
+// Index represents the index.json structure
+type Index struct {
+	Sessions []SessionMeta `json:"sessions"`
+}
+
+type SessionMeta struct {
+	ID       string    `json:"id"`
+	Path     string    `json:"path"`
+	Created  time.Time `json:"created"`
+	Modified time.Time `json:"modified"`
+}
+
+func (m *Manager) updateIndex(meta SessionMeta) error {
+	indexPath := filepath.Join(m.dir, "index.json")
+
+	// Read existing
+	var idx Index
+	data, err := os.ReadFile(indexPath)
+	if err == nil {
+		json.Unmarshal(data, &idx)
+	}
+
+	// Update or Append
+	found := false
+	for i, s := range idx.Sessions {
+		if s.ID == meta.ID {
+			idx.Sessions[i] = meta
+			found = true
+			break
+		}
+	}
+	if !found {
+		idx.Sessions = append(idx.Sessions, meta)
+	}
+
+	// Write back
+	updatedData, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(indexPath, updatedData, 0644)
+}
+
+func (m *Manager) readIndex() ([]SessionMeta, error) {
+	indexPath := filepath.Join(m.dir, "index.json")
+	data, err := os.ReadFile(indexPath)
+	if os.IsNotExist(err) {
+		return []SessionMeta{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var idx Index
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return nil, err
+	}
+	return idx.Sessions, nil
 }
 
 func (m *Manager) broadcastLoop() {
@@ -62,6 +122,9 @@ func (m *Manager) publish(id string) {
 }
 
 func (m *Manager) New(parentSessionID string) (session.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if err := os.MkdirAll(m.dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create sessions directory: %w", err)
 	}
@@ -83,12 +146,13 @@ func (m *Manager) New(parentSessionID string) (session.Session, error) {
 		notify:     m.publish,
 	}
 
+	now := time.Now()
 	header := session.Header{
 		Type:          session.TypeSession,
 		ID:            id,
 		Version:       1,
 		ParentSession: parentSessionID,
-		CreatedAt:     time.Now(),
+		CreatedAt:     now,
 	}
 
 	if err := s.writeLine(header); err != nil {
@@ -96,10 +160,25 @@ func (m *Manager) New(parentSessionID string) (session.Session, error) {
 		return nil, fmt.Errorf("failed to write session header: %w", err)
 	}
 
+	// Update Index
+	meta := SessionMeta{
+		ID:       id,
+		Path:     path,
+		Created:  now,
+		Modified: now,
+	}
+	if err := m.updateIndex(meta); err != nil {
+		slog.Error("Failed to update session index", "error", err)
+		// Proceed anyway? Or fail? proceeding is safer for now but logging error
+	}
+
 	return s, nil
 }
 
 func (m *Manager) Load(id string) (session.Session, error) {
+	// No lock needed for simple file open, but if we updated index on load (last accessed), we would need it.
+	// For now, simple load.
+
 	path := filepath.Join(m.dir, id+".jsonl")
 	f, err := os.OpenFile(path, os.O_RDWR, 0644)
 	if err != nil {
@@ -170,17 +249,22 @@ func (m *Manager) ForkFrom(id string) (session.Session, error) {
 }
 
 func (m *Manager) List() ([]session.SessionInfo, error) {
-	files, err := filepath.Glob(filepath.Join(m.dir, "*.jsonl"))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	metas, err := m.readIndex()
 	if err != nil {
 		return nil, err
 	}
 
 	var infos []session.SessionInfo
-	for _, path := range files {
-		info, err := m.getSessionInfo(path)
-		if err == nil {
-			infos = append(infos, info)
-		}
+	for _, meta := range metas {
+		infos = append(infos, session.SessionInfo{
+			ID:       meta.ID,
+			Path:     meta.Path,
+			Created:  meta.Created,
+			Modified: meta.Modified,
+		})
 	}
 
 	sort.Slice(infos, func(i, j int) bool {
@@ -191,6 +275,7 @@ func (m *Manager) List() ([]session.SessionInfo, error) {
 }
 
 func (m *Manager) getSessionInfo(path string) (session.SessionInfo, error) {
+	// Deprecated in favor of index.json, but kept if needed by other internal logic (not used by List anymore)
 	stat, err := os.Stat(path)
 	if err != nil {
 		return session.SessionInfo{}, err

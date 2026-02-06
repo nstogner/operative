@@ -7,13 +7,13 @@ import (
 	"log/slog"
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
+	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/tools"
 )
 
 // RunStep performs a single step of the agent's logic based on the session state.
 // It fetches context, decides whether to call the model or execute a tool, and appends the result to the session.
-func RunStep(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, tr *tools.Registry) error {
+func RunStep(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, sbMgr sandbox.Manager) error {
 	// 1. Fetch Context
 	entries, err := sess.GetContext()
 	if err != nil {
@@ -51,7 +51,7 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 	case session.RoleAssistant:
 		toolCalls := extractToolCalls(lastMsg)
 		if len(toolCalls) > 0 {
-			return stepExecuteTools(ctx, sess, toolCalls, tr)
+			return stepExecuteTools(ctx, sess, toolCalls, sbMgr)
 		}
 		return nil
 	default:
@@ -89,29 +89,47 @@ func stepCallModel(ctx context.Context, sess session.Session, modelName string, 
 	return nil
 }
 
-func stepExecuteTools(ctx context.Context, sess session.Session, toolCalls []session.Content, tr *tools.Registry) error {
-	if tr == nil {
-		return fmt.Errorf("no tool registry provided")
-	}
-
+func stepExecuteTools(ctx context.Context, sess session.Session, toolCalls []session.Content, sbMgr sandbox.Manager) error {
 	for _, toolCall := range toolCalls {
 		toolName := toolCall.ToolUse.Name
-		tool, ok := tr.Get(toolName)
 		var resultMsg string
 
-		if !ok {
-			resultMsg = fmt.Sprintf("Error: Tool '%s' not found.", toolName)
-		} else {
-			// Execute
-			slog.Info("Executing tool", "tool", toolName, "input", toolCall.ToolUse.Input)
-			output, err := tool.Execute(ctx, toolCall.ToolUse.Input)
-			if err != nil {
-				resultMsg = fmt.Sprintf("Error executing tool '%s': %v", toolName, err)
-				slog.Error("Tool execution failed", "tool", toolName, "error", err)
+		if toolName == sandbox.ToolNameRunIPythonCell {
+			if sbMgr == nil {
+				resultMsg = "Error: Sandbox manager not available."
 			} else {
-				resultMsg = fmt.Sprintf("%v", output)
-				slog.Info("Tool execution successful", "tool", toolName)
+				code, ok := toolCall.ToolUse.Input["code"].(string)
+				if !ok {
+					resultMsg = "Error: 'code' argument is required and must be a string."
+				} else {
+					slog.Info("Executing sandbox cell", "sessionID", sess.ID())
+					res, err := sbMgr.RunCell(ctx, sess.ID(), code)
+					if err != nil {
+						resultMsg = fmt.Sprintf("Error executing cell: %v", err)
+						slog.Error("Sandbox execution failed", "error", err)
+					} else {
+						// Format result
+						if res.Output != "" {
+							resultMsg = res.Output
+						} else {
+							// If split output or empty
+							if res.Stdout != "" {
+								resultMsg += "Stdout:\n" + res.Stdout + "\n"
+							}
+							if res.Stderr != "" {
+								resultMsg += "Stderr:\n" + res.Stderr + "\n"
+							}
+							if resultMsg == "" {
+								resultMsg = "(No output)"
+							}
+						}
+						slog.Info("Sandbox execution successful")
+					}
+				}
 			}
+		} else {
+			resultMsg = fmt.Sprintf("Error: Tool '%s' not found.", toolName)
+			slog.Warn("Unknown tool called", "tool", toolName)
 		}
 
 		// Append Tool Result

@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -26,9 +27,9 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/models/gemini"
 	"github.com/mariozechner/coding-agent/session/pkg/runner"
+	"github.com/mariozechner/coding-agent/session/pkg/sandbox/docker"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
 	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
-	"github.com/mariozechner/coding-agent/session/pkg/tools"
 )
 
 var (
@@ -55,7 +56,9 @@ var (
 type state int
 
 const (
-	stateSelectingModel state = iota
+	stateMenu state = iota
+	stateSelectingSession
+	stateSelectingModel
 	stateChatting
 )
 
@@ -64,7 +67,7 @@ type sessionUpdateMsg string
 type runnerErrorMsg struct{ err error }
 
 type model struct {
-	// Context and Core Logic
+	// ... (fields same as before)
 	ctx           context.Context
 	modelProvider models.ModelProvider
 	sessManager   session.Manager
@@ -73,10 +76,11 @@ type model struct {
 	updates       <-chan string
 
 	// State
-	state           state
-	availableModels []string
-	cursor          int
-	err             error
+	state             state
+	availableModels   []string
+	availableSessions []session.SessionInfo
+	cursor            int
+	err               error
 
 	// UI Components
 	viewport viewport.Model
@@ -101,14 +105,14 @@ func initialModel(ctx context.Context, provider models.ModelProvider, manager se
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(80, 20)
-	vp.SetContent("Welcome! Select a model to start.")
+	vp.SetContent("Welcome! Select an option.")
 
 	return model{
 		ctx:             ctx,
 		modelProvider:   provider,
 		sessManager:     manager,
 		availableModels: modelsList,
-		state:           stateSelectingModel, // Start by selecting model
+		state:           stateMenu,
 		viewport:        vp,
 		textarea:        ta,
 	}
@@ -141,8 +145,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlC, tea.KeyEsc:
 			return m, tea.Quit
 		case tea.KeyEnter:
-			if m.state == stateSelectingModel {
+			if m.state == stateMenu {
+				if m.cursor == 0 {
+					// New Session
+					m.state = stateSelectingModel
+					m.cursor = 0
+				} else {
+					// Continue Session
+					sessions, err := m.sessManager.List()
+					if err != nil {
+						m.err = err
+					} else if len(sessions) == 0 {
+						m.err = fmt.Errorf("no existing sessions found")
+					} else {
+						m.availableSessions = sessions
+						m.state = stateSelectingSession
+						m.cursor = 0
+					}
+				}
+			} else if m.state == stateSelectingModel {
 				m, cmd := m.selectModel()
+				return m, cmd
+			} else if m.state == stateSelectingSession {
+				m, cmd := m.selectSession()
 				return m, cmd
 			} else if m.state == stateChatting {
 				m.err = nil // Clear error on new message
@@ -150,23 +175,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 		case tea.KeyUp:
-			if m.state == stateSelectingModel {
-				if m.cursor > 0 {
-					m.cursor--
-				}
+			if m.cursor > 0 {
+				m.cursor--
 			}
 		case tea.KeyDown:
-			if m.state == stateSelectingModel {
-				if m.cursor < len(m.availableModels)-1 {
-					m.cursor++
-				}
+			var maxCursor int
+			switch m.state {
+			case stateMenu:
+				maxCursor = 1 // 2 options
+			case stateSelectingModel:
+				maxCursor = len(m.availableModels) - 1
+			case stateSelectingSession:
+				maxCursor = len(m.availableSessions) - 1
+			}
+			if m.cursor < maxCursor {
+				m.cursor++
 			}
 		}
 
 	case sessionUpdateMsg:
 		slog.Debug("TUI received update for session", "sessionID", msg)
 		// Reload session messages
-		if string(msg) == m.currentSess.ID() {
+		if m.currentSess != nil && string(msg) == m.currentSess.ID() {
 			slog.Debug("Reloading messages...")
 			cmds = append(cmds, m.reloadMessages(), waitForUpdate(m.updates))
 		} else {
@@ -195,6 +225,42 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	if m.state == stateMenu {
+		var s strings.Builder
+		s.WriteString(titleStyle.Render("Main Menu"))
+		s.WriteString("\n\n")
+
+		options := []string{"New Session", "Continue Session"}
+		for i, choice := range options {
+			cursor := " "
+			if m.cursor == i {
+				cursor = ">"
+				choice = selectedItemStyle.Render(choice)
+			}
+			s.WriteString(fmt.Sprintf("%s %s\n", cursorStyle.Render(cursor), choice))
+		}
+		s.WriteString("\nPress Enter to select, Esc to quit.\n")
+		return s.String()
+	}
+
+	if m.state == stateSelectingSession {
+		var s strings.Builder
+		s.WriteString(titleStyle.Render("Select Session"))
+		s.WriteString("\n\n")
+
+		for i, choice := range m.availableSessions {
+			cursor := " "
+			line := fmt.Sprintf("%s (%s)", choice.ID, choice.Modified.Format(time.RFC822))
+			if m.cursor == i {
+				cursor = ">"
+				line = selectedItemStyle.Render(line)
+			}
+			s.WriteString(fmt.Sprintf("%s %s\n", cursorStyle.Render(cursor), line))
+		}
+		s.WriteString("\nPress Enter to select, Esc to quit.\n")
+		return s.String()
+	}
+
 	if m.state == stateSelectingModel {
 		var s strings.Builder
 		s.WriteString(titleStyle.Render("Select Model"))
@@ -231,14 +297,15 @@ func (m model) View() string {
 func (m model) selectModel() (model, tea.Cmd) {
 	selected := m.availableModels[m.cursor]
 
-	// Initialize Tools
-	registry := tools.NewRegistry()
-	registry.Register(&tools.ListFilesTool{})
-	registry.Register(&tools.ReadFileTool{})
-	registry.Register(&tools.WriteFileTool{})
+	// Create Sandbox Manager (Simplified)
+	sbMgr, err := docker.New()
+	if err != nil {
+		slog.Error("Failed to initialize sandbox manager", "error", err)
+		return m, func() tea.Msg { return errMsg{err} }
+	}
 
 	// Initialize Runner
-	m.runner = runner.New(m.sessManager, m.modelProvider, selected, registry)
+	m.runner = runner.New(m.sessManager, m.modelProvider, selected, sbMgr)
 
 	// Start Runner in background
 	go func() {
@@ -253,7 +320,40 @@ func (m model) selectModel() (model, tea.Cmd) {
 		return m, func() tea.Msg { return errMsg{err} }
 	}
 	m.currentSess = sess
+	return m.enterChat()
+}
 
+func (m model) selectSession() (model, tea.Cmd) {
+	selectedSession := m.availableSessions[m.cursor]
+
+	// Use default model or ask? For now default to first available or hardcode.
+	// ideally we persist model choice in session metadata. Use first one for now.
+	modelName := m.availableModels[0]
+
+	// Create Sandbox Manager
+	sbMgr, err := docker.New()
+	if err != nil {
+		return m, func() tea.Msg { return errMsg{err} }
+	}
+
+	m.runner = runner.New(m.sessManager, m.modelProvider, modelName, sbMgr)
+
+	go func() {
+		if err := m.runner.Start(m.ctx); err != nil && err != context.Canceled {
+			slog.Error("Runner stopped", "error", err)
+		}
+	}()
+
+	sess, err := m.sessManager.Load(selectedSession.ID)
+	if err != nil {
+		return m, func() tea.Msg { return errMsg{err} }
+	}
+	m.currentSess = sess
+
+	return m.enterChat()
+}
+
+func (m model) enterChat() (model, tea.Cmd) {
 	// Subscribe to updates
 	m.updates = m.sessManager.Subscribe()
 
