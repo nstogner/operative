@@ -24,6 +24,39 @@ type Manager struct {
 	subs      []chan string
 }
 
+func (m *Manager) SetStatus(id, status string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	indexPath := filepath.Join(m.dir, "index.json")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		return err
+	}
+	var idx Index
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return err
+	}
+
+	found := false
+	for i := range idx.Sessions {
+		if idx.Sessions[i].ID == id {
+			idx.Sessions[i].Status = status
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("session %s not found", id)
+	}
+
+	updatedData, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(indexPath, updatedData, 0644)
+}
+
 func NewManager(dir string) *Manager {
 	m := &Manager{
 		dir:       dir,
@@ -41,6 +74,7 @@ type Index struct {
 type SessionMeta struct {
 	ID       string    `json:"id"`
 	Path     string    `json:"path"`
+	Status   string    `json:"status"`
 	Created  time.Time `json:"created"`
 	Modified time.Time `json:"modified"`
 }
@@ -164,6 +198,7 @@ func (m *Manager) New(parentSessionID string) (session.Session, error) {
 	meta := SessionMeta{
 		ID:       id,
 		Path:     path,
+		Status:   session.SessionStatusActive,
 		Created:  now,
 		Modified: now,
 	}
@@ -262,6 +297,7 @@ func (m *Manager) List() ([]session.SessionInfo, error) {
 		infos = append(infos, session.SessionInfo{
 			ID:       meta.ID,
 			Path:     meta.Path,
+			Status:   meta.Status,
 			Created:  meta.Created,
 			Modified: meta.Modified,
 		})

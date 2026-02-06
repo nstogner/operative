@@ -21,6 +21,9 @@ type Manager interface {
 
 	// Subscribe returns a channel that emits session IDs when an event occurs in any managed session.
 	Subscribe() <-chan string
+
+	// SetStatus updates the status of a session.
+	SetStatus(id, status string) error
 }
 
 // Session defines the interface for interacting with a single conversation session.

@@ -8,13 +8,11 @@ import (
 	"net/http/httputil"
 	"strings"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/google/uuid"
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
+	"google.golang.org/genai"
 )
 
 const (
@@ -22,12 +20,12 @@ const (
 	LevelTrace = slog.Level(-8)
 )
 
-// GeminiModel implements models.ModelProvider using the Google Gemini API.
+// GeminiModel implements models.ModelProvider using the Google Gen AI SDK.
 type GeminiModel struct {
 	client *genai.Client
 }
 
-// New creates a new GeminiModel.
+// New creates a new GeminiModel using the new google.golang.org/genai SDK.
 func New(ctx context.Context, apiKey string) (*GeminiModel, error) {
 	httpClient := &http.Client{
 		Transport: &loggingTransport{
@@ -35,9 +33,13 @@ func New(ctx context.Context, apiKey string) (*GeminiModel, error) {
 			apiKey: apiKey,
 		},
 	}
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey), option.WithHTTPClient(httpClient))
+
+	client, err := genai.NewClient(ctx, &genai.ClientConfig{
+		APIKey:     apiKey,
+		HTTPClient: httpClient,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create gemai client: %w", err)
+		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
 	return &GeminiModel{client: client}, nil
 }
@@ -48,9 +50,7 @@ type loggingTransport struct {
 }
 
 func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// If API key is provided and not already in headers/query, add it.
-	// We do this because passing a custom http.Client often bypasses
-	// the library's automatic API key injection.
+	// Add API key if missing (genai SDK usually handles this but we keep it for robustness with custom client)
 	if t.apiKey != "" && req.Header.Get("x-goog-api-key") == "" && req.URL.Query().Get("key") == "" {
 		req = req.Clone(req.Context())
 		req.Header.Set("x-goog-api-key", t.apiKey)
@@ -74,8 +74,6 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 
 	// Dump response
-	// For streaming, don't dump body to avoid consuming it/blocking.
-	// Gemini streaming uses alt=sse or Content-Type: text/event-stream.
 	isStream := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") ||
 		strings.Contains(req.URL.Query().Get("alt"), "sse")
 
@@ -91,23 +89,32 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // Close releases resources.
 func (m *GeminiModel) Close() {
-	m.client.Close()
+	// genai.Client doesn't have a Close() method in the same way, but it's good practice
 }
 
 // List returns available models.
 func (m *GeminiModel) List(ctx context.Context) ([]string, error) {
-	iter := m.client.ListModels(ctx)
 	var names []string
-	for {
-		model, err := iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	for model, err := range m.client.Models.All(ctx) {
 		if err != nil {
 			return nil, err
 		}
-		slog.Debug("Found Gemini model", "name", model.Name)
-		names = append(names, model.Name)
+
+		// Filter for models that support generateContent
+		supportsGenerate := false
+		if !strings.Contains(strings.ToLower(model.Name), "gemma") {
+			for _, action := range model.SupportedActions {
+				if action == "generateContent" {
+					supportsGenerate = true
+					break
+				}
+			}
+		}
+
+		if supportsGenerate {
+			slog.Debug("Found Gemini model", "name", model.Name)
+			names = append(names, model.Name)
+		}
 	}
 	return names, nil
 }
@@ -115,10 +122,9 @@ func (m *GeminiModel) List(ctx context.Context) ([]string, error) {
 // Stream sends a context to the LLM and returns a stream.
 func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []models.AgentMessage) (models.ModelStream, error) {
 	slog.Debug("Gemini.Stream: Request Parameters", "model", modelName, "messageCount", len(messages))
-	gm := m.client.GenerativeModel(modelName)
 
 	// Configure Tools
-	gm.Tools = []*genai.Tool{
+	tools := []*genai.Tool{
 		{
 			FunctionDeclarations: []*genai.FunctionDeclaration{
 				{
@@ -140,31 +146,40 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 	}
 
 	// Convert AgentMessages to genai.Content
-	var genaiHistory []*genai.Content
+	var contents []*genai.Content
 	toolMap := make(map[string]string)
 
 	for _, msg := range messages {
-		var parts []genai.Part
+		var parts []*genai.Part
 		for _, c := range msg.Content {
 			switch c.Type {
 			case session.ContentTypeText:
-				parts = append(parts, genai.Text(c.Text.Content))
+				parts = append(parts, &genai.Part{
+					Text:             c.Text.Content,
+					ThoughtSignature: c.Text.ThoughtSignature,
+				})
 			case session.ContentTypeToolUse:
 				toolMap[c.ToolUse.ID] = c.ToolUse.Name
-				parts = append(parts, genai.FunctionCall{
-					Name: c.ToolUse.Name,
-					Args: c.ToolUse.Input,
+				parts = append(parts, &genai.Part{
+					FunctionCall: &genai.FunctionCall{
+						Name: c.ToolUse.Name,
+						Args: c.ToolUse.Input,
+						ID:   c.ToolUse.ID,
+					},
+					ThoughtSignature: c.ToolUse.ThoughtSignature,
 				})
 			case session.ContentTypeToolResult:
 				name := toolMap[c.ToolResult.ToolUseID]
 				if name == "" {
-					// Fallback if not found (shouldn't happen in valid history)
 					name = sandbox.ToolNameRunIPythonCell
 				}
-				parts = append(parts, genai.FunctionResponse{
-					Name: name,
-					Response: map[string]any{
-						"result": c.ToolResult.Content,
+				parts = append(parts, &genai.Part{
+					FunctionResponse: &genai.FunctionResponse{
+						Name: name,
+						ID:   c.ToolResult.ToolUseID,
+						Response: map[string]any{
+							"result": c.ToolResult.Content,
+						},
 					},
 				})
 			}
@@ -173,60 +188,35 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 		role := "user"
 		if msg.Role == session.RoleAssistant {
 			role = "model"
-		}
-		if msg.Role == session.RoleTool {
+		} else if msg.Role == session.RoleTool {
 			role = "user"
 		}
 
 		if len(parts) > 0 {
-			genaiHistory = append(genaiHistory, &genai.Content{
+			contents = append(contents, &genai.Content{
 				Role:  role,
 				Parts: parts,
 			})
 		}
 	}
 
-	// Create chat session
-	cs := gm.StartChat()
-	if len(genaiHistory) > 0 {
-		// All but last
-		cs.History = genaiHistory[:len(genaiHistory)-1]
+	config := &genai.GenerateContentConfig{
+		Tools: tools,
 	}
 
-	lastMsg := messages[len(messages)-1]
-	// Convert last message parts
-	var lastParts []genai.Part
-	for _, c := range lastMsg.Content {
-		switch c.Type {
-		case session.ContentTypeText:
-			lastParts = append(lastParts, genai.Text(c.Text.Content))
-		case session.ContentTypeToolUse:
-			toolMap[c.ToolUse.ID] = c.ToolUse.Name
-			lastParts = append(lastParts, genai.FunctionCall{
-				Name: c.ToolUse.Name,
-				Args: c.ToolUse.Input,
-			})
-		case session.ContentTypeToolResult:
-			name := toolMap[c.ToolResult.ToolUseID]
-			if name == "" {
-				name = sandbox.ToolNameRunIPythonCell
-			}
-			lastParts = append(lastParts, genai.FunctionResponse{
-				Name: name,
-				Response: map[string]any{
-					"result": c.ToolResult.Content,
-				},
-			})
-		}
-	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	iter := m.client.Models.GenerateContentStream(streamCtx, modelName, contents, config)
 
-	iter := cs.SendMessageStream(ctx, lastParts...)
-	return &geminiStream{iter: iter}, nil
+	return &geminiStream{
+		iter:   iter,
+		cancel: cancel,
+	}, nil
 }
 
 // geminiStream wrapper
 type geminiStream struct {
-	iter *genai.GenerateContentResponseIterator
+	iter   func(yield func(*genai.GenerateContentResponse, error) bool)
+	cancel context.CancelFunc
 }
 
 func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
@@ -235,27 +225,38 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 
 	slog.Debug("Aggregating Gemini response stream")
 
-	for {
-		resp, err := s.iter.Next()
-		if err == iterator.Done {
-			break
-		}
+	var textSignature []byte
+	for resp, err := range s.iter {
 		if err != nil {
 			return models.AgentMessage{}, err
+		}
+		if resp == nil {
+			continue
 		}
 
 		for _, cand := range resp.Candidates {
 			if cand.Content != nil {
 				for _, part := range cand.Content.Parts {
-					if txt, ok := part.(genai.Text); ok {
-						fullText.WriteString(string(txt))
-					} else if fc, ok := part.(genai.FunctionCall); ok {
+					if part.Text != "" {
+						if len(part.ThoughtSignature) > 0 {
+							textSignature = part.ThoughtSignature
+						}
+						fullText.WriteString(part.Text)
+					}
+					if part.FunctionCall != nil {
+						fc := part.FunctionCall
+						// Ensure the tool call has an ID. If model didn't provide one, generate it.
+						id := fc.ID
+						if id == "" {
+							id = "call-" + uuid.New().String()
+						}
 						toolCalls = append(toolCalls, session.Content{
 							Type: session.ContentTypeToolUse,
 							ToolUse: &session.ToolUseContent{
-								ID:    "call-" + uuid.New().String(), // Generate ID
-								Name:  fc.Name,
-								Input: fc.Args,
+								ID:               id,
+								Name:             fc.Name,
+								Input:            fc.Args,
+								ThoughtSignature: part.ThoughtSignature,
 							},
 						})
 					}
@@ -268,7 +269,10 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 	if fullText.Len() > 0 {
 		content = append(content, session.Content{
 			Type: session.ContentTypeText,
-			Text: &session.TextContent{Content: fullText.String()},
+			Text: &session.TextContent{
+				Content:          fullText.String(),
+				ThoughtSignature: textSignature,
+			},
 		})
 	}
 	content = append(content, toolCalls...)
@@ -282,5 +286,6 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 }
 
 func (s *geminiStream) Close() error {
+	s.cancel()
 	return nil
 }

@@ -67,7 +67,7 @@ func stepCallModel(ctx context.Context, sess session.Session, modelName string, 
 		Role: session.RoleUser,
 		Content: []session.Content{{
 			Type: session.ContentTypeText,
-			Text: &session.TextContent{Content: "System: You are a helpful assistant. Please strictly use Markdown for all your responses."},
+			Text: &session.TextContent{Content: "System: You are a helpful assistant. Please strictly use basic Markdown for all your responses."},
 		}},
 	})
 

@@ -130,7 +130,8 @@ type Content struct {
 
 // TextContent contains literal text.
 type TextContent struct {
-	Content string `json:"content"`
+	Content          string `json:"content"`
+	ThoughtSignature []byte `json:"thought_signature,omitempty"`
 }
 
 // ImageContent contains image data.
@@ -147,9 +148,10 @@ type ImageSource struct {
 
 // ToolUseContent represents a call to a tool.
 type ToolUseContent struct {
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	ID               string         `json:"id"`
+	Name             string         `json:"name"`
+	Input            map[string]any `json:"input"`
+	ThoughtSignature []byte         `json:"thought_signature,omitempty"`
 }
 
 // ToolResultContent represents the outcome of a tool call.
@@ -164,10 +166,16 @@ type SessionInfo struct {
 	ID           string
 	Path         string
 	Name         string
+	Status       string
 	Created      time.Time
 	Modified     time.Time
 	MessageCount int
 }
+
+const (
+	SessionStatusActive = "active"
+	SessionStatusEnded  = "ended"
+)
 
 // TreeNode represents a hierarchical view of the session.
 type TreeNode struct {

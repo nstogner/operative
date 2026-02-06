@@ -1,76 +1,67 @@
 {
   "sessions": [
     {
-      "id": "d4b140e6-a1b1-41e7-b1c2-2949edc1c63b",
-      "path": "sessions/d4b140e6-a1b1-41e7-b1c2-2949edc1c63b.jsonl",
-      "created": "2026-02-05T21:05:42.875086-05:00",
-      "modified": "2026-02-05T21:05:42.875086-05:00"
+      "id": "98bce3d3-6869-4916-bc19-d4aa8fbb7330",
+      "path": "sessions/98bce3d3-6869-4916-bc19-d4aa8fbb7330.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:17:19.791787-05:00",
+      "modified": "2026-02-06T11:17:19.791787-05:00"
     },
     {
-      "id": "0f9188c3-3c11-46a7-9618-a3fbaffe4e40",
-      "path": "sessions/0f9188c3-3c11-46a7-9618-a3fbaffe4e40.jsonl",
-      "created": "2026-02-05T21:07:20.885526-05:00",
-      "modified": "2026-02-05T21:07:20.885526-05:00"
+      "id": "ac5d18e3-1f17-4eb7-aecc-e718b791f221",
+      "path": "sessions/ac5d18e3-1f17-4eb7-aecc-e718b791f221.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:18:09.851457-05:00",
+      "modified": "2026-02-06T11:18:09.851457-05:00"
     },
     {
-      "id": "7861eb0e-da9e-4bd2-90ca-404c0bccfae3",
-      "path": "sessions/7861eb0e-da9e-4bd2-90ca-404c0bccfae3.jsonl",
-      "created": "2026-02-05T21:31:23.211829-05:00",
-      "modified": "2026-02-05T21:31:23.211829-05:00"
+      "id": "2211f11c-a4e7-401b-90c4-d3c418476513",
+      "path": "sessions/2211f11c-a4e7-401b-90c4-d3c418476513.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:18:26.249924-05:00",
+      "modified": "2026-02-06T11:18:26.249924-05:00"
     },
     {
-      "id": "8d00bf74-6c7c-4c37-a333-4b29c830935e",
-      "path": "sessions/8d00bf74-6c7c-4c37-a333-4b29c830935e.jsonl",
-      "created": "2026-02-05T21:31:50.0165-05:00",
-      "modified": "2026-02-05T21:31:50.0165-05:00"
+      "id": "cf3b2388-d7dc-43bd-b9a3-ad6ebaec0c19",
+      "path": "sessions/cf3b2388-d7dc-43bd-b9a3-ad6ebaec0c19.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:22:08.892337-05:00",
+      "modified": "2026-02-06T11:22:08.892337-05:00"
     },
     {
-      "id": "04b57707-39c6-4df1-a3de-b3c5d7a30d4f",
-      "path": "sessions/04b57707-39c6-4df1-a3de-b3c5d7a30d4f.jsonl",
-      "created": "2026-02-06T09:54:41.844193-05:00",
-      "modified": "2026-02-06T09:54:41.844193-05:00"
+      "id": "e009d9e7-556e-42e2-ad63-db3110b76c22",
+      "path": "sessions/e009d9e7-556e-42e2-ad63-db3110b76c22.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:27:49.859445-05:00",
+      "modified": "2026-02-06T11:27:49.859445-05:00"
     },
     {
-      "id": "3edb628f-dae7-49d0-a4bd-0e4cc8a5049a",
-      "path": "sessions/3edb628f-dae7-49d0-a4bd-0e4cc8a5049a.jsonl",
-      "created": "2026-02-06T10:11:05.623883-05:00",
-      "modified": "2026-02-06T10:11:05.623883-05:00"
+      "id": "d97ca84b-a234-417e-a047-a0923e947036",
+      "path": "sessions/d97ca84b-a234-417e-a047-a0923e947036.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:31:04.08016-05:00",
+      "modified": "2026-02-06T11:31:04.08016-05:00"
     },
     {
-      "id": "15bff06a-e4c8-44fb-81c9-411c6eb537f4",
-      "path": "sessions/15bff06a-e4c8-44fb-81c9-411c6eb537f4.jsonl",
-      "created": "2026-02-06T10:13:32.125831-05:00",
-      "modified": "2026-02-06T10:13:32.125831-05:00"
+      "id": "5dc91d77-f7b6-4056-9a84-33db9f40f7d9",
+      "path": "sessions/5dc91d77-f7b6-4056-9a84-33db9f40f7d9.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T11:31:28.666186-05:00",
+      "modified": "2026-02-06T11:31:28.666186-05:00"
     },
     {
-      "id": "10acf399-7874-454a-9fb9-3aa199938968",
-      "path": "sessions/10acf399-7874-454a-9fb9-3aa199938968.jsonl",
-      "created": "2026-02-06T10:14:46.176308-05:00",
-      "modified": "2026-02-06T10:14:46.176308-05:00"
+      "id": "3b4fe728-8c5d-4438-a72c-64289b0c0b12",
+      "path": "sessions/3b4fe728-8c5d-4438-a72c-64289b0c0b12.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T12:12:29.990941-05:00",
+      "modified": "2026-02-06T12:12:29.990941-05:00"
     },
     {
-      "id": "225667ae-4562-4b16-9376-4f8199cce0c0",
-      "path": "sessions/225667ae-4562-4b16-9376-4f8199cce0c0.jsonl",
-      "created": "2026-02-06T10:21:09.176933-05:00",
-      "modified": "2026-02-06T10:21:09.176933-05:00"
-    },
-    {
-      "id": "7bf16b32-4b99-4846-acde-51260689e6c8",
-      "path": "sessions/7bf16b32-4b99-4846-acde-51260689e6c8.jsonl",
-      "created": "2026-02-06T10:21:23.713132-05:00",
-      "modified": "2026-02-06T10:21:23.713132-05:00"
-    },
-    {
-      "id": "14ece990-60fd-409d-9b7c-efe7cc93435e",
-      "path": "sessions/14ece990-60fd-409d-9b7c-efe7cc93435e.jsonl",
-      "created": "2026-02-06T10:23:58.679149-05:00",
-      "modified": "2026-02-06T10:23:58.679149-05:00"
-    },
-    {
-      "id": "f99d54b2-a634-429c-99d5-3a928cc9dd21",
-      "path": "sessions/f99d54b2-a634-429c-99d5-3a928cc9dd21.jsonl",
-      "created": "2026-02-06T10:30:41.326332-05:00",
-      "modified": "2026-02-06T10:30:41.326332-05:00"
+      "id": "a146ba8a-4949-43a7-9e20-6af59e164afb",
+      "path": "sessions/a146ba8a-4949-43a7-9e20-6af59e164afb.jsonl",
+      "status": "ended",
+      "created": "2026-02-06T12:17:10.957125-05:00",
+      "modified": "2026-02-06T12:17:10.957125-05:00"
     }
   ]
 }

@@ -28,6 +28,7 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/models/gemini"
 	"github.com/mariozechner/coding-agent/session/pkg/runner"
+	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox/docker"
 	"github.com/mariozechner/coding-agent/session/pkg/session"
 	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
@@ -61,6 +62,7 @@ const (
 	stateSelectingSession
 	stateSelectingModel
 	stateChatting
+	stateConfirmExit
 )
 
 type errMsg struct{ err error }
@@ -69,12 +71,13 @@ type runnerErrorMsg struct{ err error }
 
 type model struct {
 	// ... (fields same as before)
-	ctx           context.Context
-	modelProvider models.ModelProvider
-	sessManager   session.Manager
-	currentSess   session.Session
-	runner        *runner.Runner
-	updates       <-chan string
+	ctx            context.Context
+	modelProvider  models.ModelProvider
+	sessManager    session.Manager
+	currentSess    session.Session
+	runner         *runner.Runner
+	sandboxManager sandbox.Manager
+	updates        <-chan string
 
 	// State
 	state             state
@@ -118,12 +121,19 @@ func initialModel(ctx context.Context, provider models.ModelProvider, manager se
 		glamour.WithWordWrap(80),
 	)
 
+	// Check for existing sessions
+	startState := stateMenu
+	sessions, err := manager.List()
+	if err == nil && len(sessions) == 0 {
+		startState = stateSelectingModel
+	}
+
 	return model{
 		ctx:             ctx,
 		modelProvider:   provider,
 		sessManager:     manager,
 		availableModels: modelsList,
-		state:           stateMenu,
+		state:           startState,
 		viewport:        vp,
 		textarea:        ta,
 		renderer:        r,
@@ -138,9 +148,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	var tiCmd, vpCmd tea.Cmd
-	m.textarea, tiCmd = m.textarea.Update(msg)
+	// This prevents the Enter key used for menu selection from leaking into the textarea.
+	switch msg.(type) {
+	case tea.KeyMsg:
+		if m.state == stateChatting {
+			m.textarea, tiCmd = m.textarea.Update(msg)
+			cmds = append(cmds, tiCmd)
+		}
+	default:
+		m.textarea, tiCmd = m.textarea.Update(msg)
+		cmds = append(cmds, tiCmd)
+	}
+
 	m.viewport, vpCmd = m.viewport.Update(msg)
-	cmds = append(cmds, tiCmd, vpCmd)
+	cmds = append(cmds, vpCmd)
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -179,7 +200,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
+			if m.currentSess != nil {
+				m.state = stateConfirmExit
+				return m, nil
+			}
+			return m, tea.Quit
+		case tea.KeyEsc:
+			if m.state == stateConfirmExit {
+				m.state = stateChatting
+				return m, nil
+			}
+			if m.currentSess != nil {
+				m.state = stateConfirmExit
+				return m, nil
+			}
 			return m, tea.Quit
 		case tea.KeyEnter:
 			if m.state == stateMenu {
@@ -240,6 +275,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.cursor >= m.listOffset+maxViewable {
 					m.listOffset = m.cursor - maxViewable + 1
+				}
+			}
+		default:
+			if m.state == stateConfirmExit {
+				switch msg.String() {
+				case "y", "Y":
+					// End Session
+					return m, tea.Sequence(
+						m.endSessionCmd(),
+						tea.Quit,
+					)
+				case "n", "N":
+					// Leave Running
+					return m, tea.Quit
 				}
 			}
 		}
@@ -359,9 +408,23 @@ func (m model) View() string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
 	}
 
+	if m.state == stateConfirmExit {
+		header := titleStyle.Render("Confirm Exit")
+		prompt := "End Session? (y/n)"
+		subtext := "Ending the session will remove the sandbox."
+
+		return lipgloss.JoinVertical(
+			lipgloss.Left,
+			header,
+			"",
+			prompt,
+			subtext,
+		)
+	}
+
 	var errorView string
 	if m.err != nil {
-		errorView = errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
+		errorView = errorStyle.Width(m.width).Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
 	return lipgloss.JoinVertical(
@@ -389,6 +452,7 @@ func (m model) selectModel() (model, tea.Cmd) {
 
 	// Initialize Runner
 	m.runner = runner.New(m.sessManager, m.modelProvider, selected, sbMgr)
+	m.sandboxManager = sbMgr
 
 	// Start Runner in background
 	go func() {
@@ -420,6 +484,7 @@ func (m model) selectSession() (model, tea.Cmd) {
 	}
 
 	m.runner = runner.New(m.sessManager, m.modelProvider, modelName, sbMgr)
+	m.sandboxManager = sbMgr
 
 	go func() {
 		if err := m.runner.Start(m.ctx); err != nil && err != context.Canceled {
@@ -459,7 +524,8 @@ func (m model) sendMessage() (model, tea.Cmd) {
 	}
 
 	if v == "/exit" {
-		return m, tea.Quit
+		m.state = stateConfirmExit
+		return m, nil
 	}
 
 	// Clear input
@@ -474,6 +540,22 @@ func (m model) sendMessage() (model, tea.Cmd) {
 			return errMsg{err}
 		}
 		// The append will trigger an event via Manager, which we listen to
+		return nil
+	}
+}
+
+func (m model) endSessionCmd() tea.Cmd {
+	return func() tea.Msg {
+		if m.currentSess != nil {
+			if err := m.sessManager.SetStatus(m.currentSess.ID(), session.SessionStatusEnded); err != nil {
+				slog.Error("Failed to set session status", "error", err)
+			}
+			if m.sandboxManager != nil {
+				if err := m.sandboxManager.Stop(m.ctx, m.currentSess.ID()); err != nil {
+					slog.Error("Failed to stop sandbox", "error", err)
+				}
+			}
+		}
 		return nil
 	}
 }
