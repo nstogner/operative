@@ -38,10 +38,21 @@ The system follows a reactive, event-driven pattern:
     -   **Tools**: `ListFiles`, `ReadFile`, `WriteFile`.
 
 ### Usage
-
 ```bash
 export GEMINI_API_KEY="your-key"
 go run cmd/cli/main.go
 ```
 1.  Select a model from the list.
 2.  Chat or ask to perform file operations (e.g., "List files in this folder").
+
+### Testing
+
+-   **Unit Tests**: Run unit tests (skipping integration tests).
+    ```bash
+    make test
+    ```
+
+-   **Integration Tests**: Run integration tests (requires `.env` file with `GEMINI_API_KEY`).
+    ```bash
+    make test-integration
+    ```

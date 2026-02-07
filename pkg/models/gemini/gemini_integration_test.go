@@ -11,7 +11,7 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/session"
 )
 
-func TestGeminiIntegration(t *testing.T) {
+func TestIntegration_Gemini(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping Gemini integration test: GEMINI_API_KEY not set")
@@ -74,5 +74,13 @@ func TestGeminiIntegration(t *testing.T) {
 		t.Fatalf("FullMessage failed: %v", err)
 	}
 
-	t.Logf("Response: %v", resp.Content[0].Text.Content)
+	if len(resp.Content) > 0 {
+		if resp.Content[0].Text != nil {
+			t.Logf("Response: %v", resp.Content[0].Text.Content)
+		} else {
+			t.Logf("Response content type: %s", resp.Content[0].Type)
+		}
+	} else {
+		t.Log("Response empty")
+	}
 }

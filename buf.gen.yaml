@@ -1,0 +1,12 @@
+version: v1
+plugins:
+  - plugin: buf.build/protocolbuffers/go
+    out: .
+    opt: paths=source_relative
+  - plugin: buf.build/grpc/go
+    out: .
+    opt: paths=source_relative
+  - plugin: buf.build/protocolbuffers/python
+    out: pkg/sandbox/docker/image
+  - plugin: buf.build/grpc/python
+    out: pkg/sandbox/docker/image

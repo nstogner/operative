@@ -1,12 +1,9 @@
 package docker
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"time"
 
 	"github.com/docker/docker/api/types"
@@ -14,6 +11,9 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
+	sandboxv1 "github.com/mariozechner/coding-agent/session/pkg/sandbox/api"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 const (
@@ -49,52 +49,106 @@ func (m *DockerManager) containerName(sessionID string) string {
 	return fmt.Sprintf("session-%s", sessionID)
 }
 
-func (m *DockerManager) RunCell(ctx context.Context, sessionID string, code string) (*sandbox.Result, error) {
+func (m *DockerManager) RunCell(ctx context.Context, sessionID string, code string, delegate sandbox.Delegate) (*sandbox.Result, error) {
 	hostPort, err := m.ensureRunning(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:%s/tools:run_ipython_cell", hostPort)
-
-	reqBody := map[string]interface{}{
-		"code":         code,
-		"split_output": false,
-	}
-	jsonBody, _ := json.Marshal(reqBody)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	// Dial gRPC
+	conn, err := grpc.Dial(fmt.Sprintf("127.0.0.1:%s", hostPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to dial sandbox: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer conn.Close()
 
-	resp, err := http.DefaultClient.Do(req)
+	client := sandboxv1.NewSandboxClient(conn)
+
+	stream, err := client.RunStream(ctx)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("sandbox error %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("failed to start stream: %w", err)
 	}
 
-	var res struct {
-		Output string `json:"output"`
-		Stdout string `json:"stdout"`
-		Stderr string `json:"stderr"`
+	// Send execution request
+	if err := stream.Send(&sandboxv1.ClientMessage{
+		Payload: &sandboxv1.ClientMessage_RunCell{
+			RunCell: &sandboxv1.RunCellRequest{
+				Code: code,
+			},
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("failed to send run cell request: %w", err)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return nil, err
+	var output, stdout, stderr string
+
+	for {
+		msg, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("stream error: %w", err)
+		}
+
+		switch payload := msg.Payload.(type) {
+		case *sandboxv1.ServerMessage_Output:
+			if payload.Output.IsStderr {
+				stderr += payload.Output.Text
+			} else {
+				stdout += payload.Output.Text
+			}
+			output += payload.Output.Text
+
+		case *sandboxv1.ServerMessage_RunCellResult:
+			// Final result
+			// We can append any remaining output if strictly needed, but typically stream sends Output before Result?
+			// The result itself has the full output in the proto, but we might have been streaming it.
+			// Let's rely on the result for the definitive final string if we want, or build it up.
+			// The old implementation returned the full string.
+			// The prototype shows Result having output/stdout/stderr.
+			return &sandbox.Result{
+				Output: payload.RunCellResult.Output,
+				Stdout: payload.RunCellResult.Stdout,
+				Stderr: payload.RunCellResult.Stderr,
+			}, nil
+
+		case *sandboxv1.ServerMessage_PromptModel:
+			// Call back to agent
+			resp, err := delegate.PromptModel(ctx, payload.PromptModel.Prompt)
+			// Send response back
+			// Note: If error, we might want to signal that? The proto doesn't have error field for prompt response yet.
+			// Assuming success or empty string on error for now, or log it.
+			// Ideally we handle error.
+			responseVal := resp
+			if err != nil {
+				// Log error? Send back error message?
+				// For now, let's just send the error as the response so the python side sees it, or empty.
+				responseVal = fmt.Sprintf("Error: %v", err)
+			}
+
+			if err := stream.Send(&sandboxv1.ClientMessage{
+				Payload: &sandboxv1.ClientMessage_PromptModelResponse{
+					PromptModelResponse: &sandboxv1.PromptModelResponse{
+						Id:       payload.PromptModel.Id,
+						Response: responseVal,
+					},
+				},
+			}); err != nil {
+				return nil, fmt.Errorf("failed to send prompt response: %w", err)
+			}
+
+		case *sandboxv1.ServerMessage_PromptSelf:
+			// Call back to agent
+			if err := delegate.PromptSelf(ctx, payload.PromptSelf.Message); err != nil {
+				// Log error
+				fmt.Printf("Error prompting self: %v\n", err)
+			}
+			// No response needed for PromptSelf
+		}
 	}
 
-	return &sandbox.Result{
-		Output: res.Output,
-		Stdout: res.Stdout,
-		Stderr: res.Stderr,
-	}, nil
+	return nil, fmt.Errorf("stream ended without result")
 }
 
 func (m *DockerManager) Stop(ctx context.Context, sessionID string) error {
@@ -123,10 +177,6 @@ func (m *DockerManager) ensureRunning(ctx context.Context, sessionID string) (st
 		if err != nil {
 			return "", err
 		}
-		// We assumes it's healthy if running, but maybe we should check health?
-		// For performance, we can skip full health check if it's already running,
-		// but if it just started it might not be ready.
-		// However, for lazy launch, we probably want to be sure.
 		if err := m.waitForHealth(ctx, port); err != nil {
 			return "", err
 		}
@@ -165,7 +215,6 @@ func (m *DockerManager) createAndStart(ctx context.Context, sessionID string) (s
 
 	cfg := &container.Config{
 		Image: ImageName,
-		// Cmd is inherited from Dockerfile (python server.py)
 		ExposedPorts: nat.PortSet{
 			nat.Port(ServerPort + "/tcp"): {},
 		},
@@ -217,24 +266,32 @@ func (m *DockerManager) getPort(c types.ContainerJSON) (string, error) {
 }
 
 func (m *DockerManager) waitForHealth(ctx context.Context, port string) error {
-	url := fmt.Sprintf("http://127.0.0.1:%s/healthz", port)
+	// For gRPC, we could assume if it connects it's healthy, or hit a health endpoint if we implemented grpc-health-probe.
+	// For now, let's just try to dial it with a timeout loop?
+	// A simple TCP dial check is good.
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
-
-	// Initial startup can be slow due to pip install
-	timeoutCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 
 	for {
 		select {
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("timeout waiting for sandbox health")
+			return fmt.Errorf("timeout waiting for sandbox port")
 		case <-ticker.C:
-			resp, err := http.Get(url)
-			if err == nil && resp.StatusCode == 200 {
-				resp.Body.Close()
+			// Try to dial with short timeout
+			dialCtx, dialCancel := context.WithTimeout(timeoutCtx, 1*time.Second)
+			conn, err := grpc.DialContext(dialCtx, fmt.Sprintf("127.0.0.1:%s", port), grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+			dialCancel()
+
+			if err == nil {
+				conn.Close()
 				return nil
 			}
+			fmt.Printf("Dial failed: %v\n", err)
+			// If error, continue
 		}
 	}
 }

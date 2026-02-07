@@ -51,7 +51,7 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 	case session.RoleAssistant:
 		toolCalls := extractToolCalls(lastMsg)
 		if len(toolCalls) > 0 {
-			return stepExecuteTools(ctx, sess, toolCalls, sbMgr)
+			return stepExecuteTools(ctx, sess, modelName, model, toolCalls, sbMgr)
 		}
 		return nil
 	default:
@@ -98,7 +98,7 @@ func stepCallModel(ctx context.Context, sess session.Session, modelName string, 
 	return nil
 }
 
-func stepExecuteTools(ctx context.Context, sess session.Session, toolCalls []session.Content, sbMgr sandbox.Manager) error {
+func stepExecuteTools(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, toolCalls []session.Content, sbMgr sandbox.Manager) error {
 	for _, toolCall := range toolCalls {
 		toolName := toolCall.ToolUse.Name
 		var resultMsg string
@@ -112,7 +112,15 @@ func stepExecuteTools(ctx context.Context, sess session.Session, toolCalls []ses
 					resultMsg = "Error: 'code' argument is required and must be a string."
 				} else {
 					slog.Info("Executing sandbox cell", "sessionID", sess.ID())
-					res, err := sbMgr.RunCell(ctx, sess.ID(), code)
+
+					delegate := &runnerDelegate{
+						ctx:       ctx,
+						sess:      sess,
+						model:     model,
+						modelName: modelName,
+					}
+					// Pass delegate
+					res, err := sbMgr.RunCell(ctx, sess.ID(), code, delegate)
 					if err != nil {
 						resultMsg = fmt.Sprintf("Error executing cell: %v", err)
 						slog.Error("Sandbox execution failed", "error", err)
@@ -168,4 +176,65 @@ func extractToolCalls(msg *session.MessageEntry) []session.Content {
 		}
 	}
 	return calls
+}
+
+type runnerDelegate struct {
+	ctx       context.Context
+	sess      session.Session
+	model     models.ModelProvider
+	modelName string
+}
+
+func (d *runnerDelegate) PromptModel(ctx context.Context, prompt string) (string, error) {
+	// Call model with the prompt
+	// logic similar to stepCallModel but for a specific prompt
+	// construct a minimal context with just the prompt
+	messages := []models.AgentMessage{
+		{
+			Role: session.RoleUser,
+			Content: []session.Content{
+				{Type: session.ContentTypeText, Text: &session.TextContent{Content: prompt}},
+			},
+		},
+	}
+	stream, err := d.model.Stream(ctx, d.modelName, messages)
+	if err != nil {
+		return "", err
+	}
+	defer stream.Close()
+
+	msg, err := stream.FullMessage()
+	if err != nil {
+		return "", err
+	}
+
+	// Extract text content
+	if msg.Content != nil {
+		for _, c := range msg.Content {
+			if c.Type == session.ContentTypeText && c.Text != nil {
+				return c.Text.Content, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no text response from model")
+}
+
+func (d *runnerDelegate) PromptSelf(ctx context.Context, message string) error {
+	// Append a user message to the session
+	// This "schedules" a future run since the runner loop will pick up the new event.
+	// But wait, the runner loop triggers on events. If we append here, does it trigger immediately?
+	// Yes, `sess.AppendMessage` should trigger the manager to publish an event.
+	// The runner handles one event at a time.
+	// If we are currently processing a step, we are in the middle of handling an event.
+	// Appending a new message will create a NEW event.
+	// That new event will remain in the queue (or be picked up next iteration).
+	// This is exactly what we want.
+
+	_, err := d.sess.AppendMessage(session.RoleUser, []session.Content{
+		{
+			Type: session.ContentTypeText,
+			Text: &session.TextContent{Content: message},
+		},
+	})
+	return err
 }

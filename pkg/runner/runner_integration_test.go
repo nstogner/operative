@@ -15,7 +15,7 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
 )
 
-func TestRunnerIntegration_Gemini(t *testing.T) {
+func TestIntegration_Runner_Gemini(t *testing.T) {
 	apiKey := os.Getenv("GEMINI_API_KEY")
 	if apiKey == "" {
 		t.Skip("Skipping integration test: GEMINI_API_KEY not set")
