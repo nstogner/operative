@@ -1,0 +1,12 @@
+{
+    "id": "default",
+    "name": "Coding Assistant",
+    "instructions": "You are a helpful coding assistant. You are an expert in Go and software architecture. Always use Markdown.",
+    "model": "gemini-2.0-flash-exp",
+    "tools": [
+        "read_file",
+        "list_files",
+        "write_file",
+        "run_terminal_command"
+    ]
+}

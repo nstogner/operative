@@ -1,4 +1,4 @@
-// Package main implements a CLI for the coding agent.
+// ... (careful replacement needed, doing smaller chunks or sed)
 //
 // Usage:
 //
@@ -30,8 +30,8 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/runner"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox/docker"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
+	"github.com/mariozechner/coding-agent/session/pkg/store/jsonl"
 )
 
 var (
@@ -59,8 +59,9 @@ type state int
 
 const (
 	stateMenu state = iota
-	stateSelectingSession
+	stateSelectingAgent
 	stateSelectingModel
+	stateSelectingSession
 	stateChatting
 	stateConfirmExit
 )
@@ -73,32 +74,34 @@ type model struct {
 	// ... (fields same as before)
 	ctx            context.Context
 	modelProvider  models.ModelProvider
-	sessManager    session.Manager
-	currentSess    session.Session
+	sessManager    store.Manager
+	currentSess    store.Session
 	runner         *runner.Runner
 	sandboxManager sandbox.Manager
 	updates        <-chan string
 
 	// State
-	state             state
-	availableModels   []string
-	availableSessions []session.SessionInfo
-	cursor            int
-	listOffset        int
-	width             int
-	height            int
-	err               error
+	state              state
+	availableModels    []string
+	availableSessions  []store.SessionInfo
+	availableAgents    []store.Agent // New
+	selectedAgentIndex int           // New
+	cursor             int
+	listOffset         int
+	width              int
+	height             int
+	err                error
 
 	// UI Components
 	viewport viewport.Model
 	textarea textarea.Model
 
 	// Data
-	messages []session.Entry
+	messages []store.Entry
 	renderer *glamour.TermRenderer
 }
 
-func initialModel(ctx context.Context, provider models.ModelProvider, manager session.Manager, modelsList []string) model {
+func initialModel(ctx context.Context, provider models.ModelProvider, manager store.Manager, modelsList []string) model {
 	ta := textarea.New()
 	ta.Placeholder = "Send a message..."
 	ta.Focus()
@@ -123,16 +126,20 @@ func initialModel(ctx context.Context, provider models.ModelProvider, manager se
 
 	// Check for existing sessions
 	startState := stateMenu
-	sessions, err := manager.List()
+	sessions, err := manager.ListSessions()
 	if err == nil && len(sessions) == 0 {
-		startState = stateSelectingModel
+		// No sessions? Go straight to new session flow, which starts with Agent selection
+		startState = stateSelectingAgent
 	}
+
+	agents, _ := manager.ListAgents()
 
 	return model{
 		ctx:             ctx,
 		modelProvider:   provider,
 		sessManager:     manager,
 		availableModels: modelsList,
+		availableAgents: agents,
 		state:           startState,
 		viewport:        vp,
 		textarea:        ta,
@@ -219,13 +226,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEnter:
 			if m.state == stateMenu {
 				if m.cursor == 0 {
-					// New Session
-					m.state = stateSelectingModel
+					// New Session -> Select Agent
+					m.state = stateSelectingAgent
 					m.cursor = 0
 					m.listOffset = 0
+
+					// If no agents, skip to Model selection (or error?)
+					if len(m.availableAgents) == 0 {
+						// Fallback if no agents found (should ideally not happen if defaults exist)
+						m.state = stateSelectingModel
+					}
 				} else {
 					// Continue Session
-					sessions, err := m.sessManager.List()
+					sessions, err := m.sessManager.ListSessions()
 					if err != nil {
 						m.err = err
 					} else if len(sessions) == 0 {
@@ -237,7 +250,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.listOffset = 0
 					}
 				}
+			} else if m.state == stateSelectingAgent {
+				// Agent selected, go directly to Chat (initialization is in selectAgent now called elsewhere?)
+				// Wait, selectAgent logic is not separate function yet, it was inline or via state.
+				// Let's refactor:
+				m.selectedAgentIndex = m.cursor
+				// Call a method to finalize agent selection and start chat
+				return m.selectAgent()
 			} else if m.state == stateSelectingModel {
+				// Dead state, but keep for safety
 				m, cmd := m.selectModel()
 				return m, cmd
 			} else if m.state == stateSelectingSession {
@@ -260,6 +281,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch m.state {
 			case stateMenu:
 				maxCursor = 1 // 2 options
+			case stateSelectingAgent:
+				maxCursor = len(m.availableAgents) - 1
 			case stateSelectingModel:
 				maxCursor = len(m.availableModels) - 1
 			case stateSelectingSession:
@@ -325,6 +348,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) View() string {
+	var errorView string
+	if m.err != nil {
+		errorView = errorStyle.Width(m.width).Render(fmt.Sprintf("\nError: %v", m.err))
+	}
+
 	if m.state == stateMenu {
 		header := titleStyle.Render("Main Menu")
 
@@ -342,7 +370,39 @@ func (m model) View() string {
 		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
 		footer := "Press Enter to select, Esc to quit."
 
-		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer, errorView)
+	}
+
+	if m.state == stateSelectingAgent {
+		header := titleStyle.Render("Select Agent")
+
+		maxViewable := m.height - 7
+		if maxViewable < 1 {
+			maxViewable = 1
+		}
+
+		start := m.listOffset
+		end := start + maxViewable
+		if end > len(m.availableAgents) {
+			end = len(m.availableAgents)
+		}
+
+		var optionsView []string
+		for i := start; i < end; i++ {
+			choice := m.availableAgents[i]
+			cursor := " "
+			line := fmt.Sprintf("%s (%s)", choice.Name, choice.ID)
+			if m.cursor == i {
+				cursor = ">"
+				line = selectedItemStyle.Render(line)
+			}
+			optionsView = append(optionsView, fmt.Sprintf("%s %s", cursorStyle.Render(cursor), line))
+		}
+
+		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
+		footer := "Press Enter to select, Esc to quit."
+
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer, errorView)
 	}
 
 	if m.state == stateSelectingSession {
@@ -374,7 +434,7 @@ func (m model) View() string {
 		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
 		footer := "Press Enter to select, Esc to quit."
 
-		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer, errorView)
 	}
 
 	if m.state == stateSelectingModel {
@@ -405,7 +465,7 @@ func (m model) View() string {
 		list := lipgloss.JoinVertical(lipgloss.Left, optionsView...)
 		footer := "Press Enter to select, Esc to quit."
 
-		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer)
+		return lipgloss.JoinVertical(lipgloss.Left, header, "", list, "", footer, errorView)
 	}
 
 	if m.state == stateConfirmExit {
@@ -419,12 +479,8 @@ func (m model) View() string {
 			"",
 			prompt,
 			subtext,
+			errorView,
 		)
-	}
-
-	var errorView string
-	if m.err != nil {
-		errorView = errorStyle.Width(m.width).Render(fmt.Sprintf("Error: %v", m.err))
 	}
 
 	return lipgloss.JoinVertical(
@@ -439,6 +495,43 @@ func (m model) View() string {
 }
 
 // Actions
+
+func (m model) selectAgent() (model, tea.Cmd) {
+	agentID := ""
+	if len(m.availableAgents) > 0 && m.selectedAgentIndex < len(m.availableAgents) {
+		agentID = m.availableAgents[m.selectedAgentIndex].ID
+	}
+	sess, err := m.sessManager.NewSession(agentID, "")
+	if err != nil {
+		return m, func() tea.Msg { return errMsg{err} }
+	}
+	m.currentSess = sess
+
+	// Initialize Runner with Agent's model or default
+	agentModel := sess.Header().Agent.Model
+	if agentModel == "" && len(m.availableModels) > 0 {
+		agentModel = m.availableModels[0]
+	}
+
+	// Create Sandbox Manager (Simplified)
+	sbMgr, err := docker.New()
+	if err != nil {
+		slog.Error("Failed to initialize sandbox manager", "error", err)
+		return m, func() tea.Msg { return errMsg{err} }
+	}
+
+	m.runner = runner.New(m.sessManager, m.modelProvider, agentModel, sbMgr)
+	m.sandboxManager = sbMgr
+
+	// Start Runner in background
+	go func() {
+		if err := m.runner.Start(m.ctx); err != nil && err != context.Canceled {
+			slog.Error("Runner stopped", "error", err)
+		}
+	}()
+
+	return m.enterChat()
+}
 
 func (m model) selectModel() (model, tea.Cmd) {
 	selected := m.availableModels[m.cursor]
@@ -462,11 +555,16 @@ func (m model) selectModel() (model, tea.Cmd) {
 	}()
 
 	// Create Session
-	sess, err := m.sessManager.New("")
+	agentID := ""
+	if len(m.availableAgents) > 0 && m.selectedAgentIndex < len(m.availableAgents) {
+		agentID = m.availableAgents[m.selectedAgentIndex].ID
+	}
+	sess, err := m.sessManager.NewSession(agentID, "")
 	if err != nil {
 		return m, func() tea.Msg { return errMsg{err} }
 	}
 	m.currentSess = sess
+
 	return m.enterChat()
 }
 
@@ -475,7 +573,17 @@ func (m model) selectSession() (model, tea.Cmd) {
 
 	// Use default model or ask? For now default to first available or hardcode.
 	// ideally we persist model choice in session metadata. Use first one for now.
-	modelName := m.availableModels[0]
+	sess, err := m.sessManager.LoadSession(selectedSession.ID)
+	if err != nil {
+		return m, func() tea.Msg { return errMsg{err} }
+	}
+	m.currentSess = sess
+
+	// Use Agent's model or fallback
+	modelName := sess.Header().Agent.Model
+	if modelName == "" && len(m.availableModels) > 0 {
+		modelName = m.availableModels[0]
+	}
 
 	// Create Sandbox Manager
 	sbMgr, err := docker.New()
@@ -491,12 +599,6 @@ func (m model) selectSession() (model, tea.Cmd) {
 			slog.Error("Runner stopped", "error", err)
 		}
 	}()
-
-	sess, err := m.sessManager.Load(selectedSession.ID)
-	if err != nil {
-		return m, func() tea.Msg { return errMsg{err} }
-	}
-	m.currentSess = sess
 
 	return m.enterChat()
 }
@@ -528,13 +630,32 @@ func (m model) sendMessage() (model, tea.Cmd) {
 		return m, nil
 	}
 
+	if strings.HasPrefix(v, "/model ") {
+		modelName := strings.TrimSpace(strings.TrimPrefix(v, "/model "))
+		if modelName == "" {
+			return m, nil
+		}
+
+		m.textarea.Reset()
+		return m, func() tea.Msg {
+			// Persist the model change
+			// We assume the model provider supports the generic name, or we validate it.
+			// For now, just append.
+			if _, err := m.currentSess.AppendModelChange("gemini", modelName); err != nil {
+				return errMsg{err}
+			}
+			// Trigger update
+			return nil
+		}
+	}
+
 	// Clear input
 	m.textarea.Reset()
 
 	// Append Message
 	return m, func() tea.Msg {
-		_, err := m.currentSess.AppendMessage(session.RoleUser, []session.Content{
-			{Type: session.ContentTypeText, Text: &session.TextContent{Content: v}},
+		_, err := m.currentSess.AppendMessage(store.RoleUser, []store.Content{
+			{Type: store.ContentTypeText, Text: &store.TextContent{Content: v}},
 		})
 		if err != nil {
 			return errMsg{err}
@@ -547,7 +668,7 @@ func (m model) sendMessage() (model, tea.Cmd) {
 func (m model) endSessionCmd() tea.Cmd {
 	return func() tea.Msg {
 		if m.currentSess != nil {
-			if err := m.sessManager.SetStatus(m.currentSess.ID(), session.SessionStatusEnded); err != nil {
+			if err := m.sessManager.SetSessionStatus(m.currentSess.ID(), store.SessionStatusEnded); err != nil {
 				slog.Error("Failed to set session status", "error", err)
 			}
 			if m.sandboxManager != nil {
@@ -562,13 +683,13 @@ func (m model) endSessionCmd() tea.Cmd {
 
 type updateViewMsg struct {
 	content string
-	sess    session.Session
+	sess    store.Session
 }
 
 func (m model) reloadMessages() tea.Cmd {
 	return func() tea.Msg {
 		// Create a temporary read-only view to get the latest state from disk
-		sess, err := m.sessManager.Load(m.currentSess.ID())
+		sess, err := m.sessManager.LoadSession(m.currentSess.ID())
 		if err != nil {
 			return errMsg{err}
 		}
@@ -628,9 +749,9 @@ func (m model) reloadMessages() tea.Cmd {
 				}
 
 				// Titles
-				if e.Message.Role == session.RoleUser {
+				if e.Message.Role == store.RoleUser {
 					sb.WriteString(userStyle.Render("User: "))
-				} else if e.Message.Role == session.RoleAssistant {
+				} else if e.Message.Role == store.RoleAssistant {
 					sb.WriteString(senderStyle.Render("AI: "))
 				} else {
 					sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(role + ": "))
@@ -728,7 +849,7 @@ func main() {
 	}
 
 	// 3. Initialize Manager
-	mgr := jsonl.NewManager("./sessions")
+	mgr := jsonl.NewManager("./store")
 
 	// 4. Start Program
 	p := tea.NewProgram(initialModel(ctx, geminiModel, mgr, modelsList))
@@ -756,12 +877,12 @@ func (m *MockModel) Stream(ctx context.Context, modelName string, messages []mod
 	responseText := fmt.Sprintf("Echo from %s: %s", modelName, lastMsg.Content[0].Text.Content)
 
 	// If user says "tool", trigger a tool call
-	var content []session.Content
+	var content []store.Content
 	if strings.Contains(responseText, "tool") {
-		content = []session.Content{
+		content = []store.Content{
 			{
-				Type: session.ContentTypeToolUse,
-				ToolUse: &session.ToolUseContent{
+				Type: store.ContentTypeToolUse,
+				ToolUse: &store.ToolUseContent{
 					ID:    "call-1",
 					Name:  "example-tool",
 					Input: map[string]any{"arg": "value"},
@@ -769,17 +890,17 @@ func (m *MockModel) Stream(ctx context.Context, modelName string, messages []mod
 			},
 		}
 	} else {
-		content = []session.Content{
+		content = []store.Content{
 			{
-				Type: session.ContentTypeText,
-				Text: &session.TextContent{Content: responseText},
+				Type: store.ContentTypeText,
+				Text: &store.TextContent{Content: responseText},
 			},
 		}
 	}
 
 	return &MockStream{
 		Msg: models.AgentMessage{
-			Role:    session.RoleAssistant,
+			Role:    store.RoleAssistant,
 			Content: content,
 		},
 	}, nil

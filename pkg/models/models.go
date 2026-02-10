@@ -3,16 +3,16 @@ package models
 import (
 	"context"
 
-	"github.com/mariozechner/coding-agent/session/pkg/session"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
 )
 
 // AgentMessage represents a message in the agent's context.
-// It mirrors session.MessageEntry but is specific to the active agent loop.
+// It mirrors store.MessageEntry but is specific to the active agent loop.
 type AgentMessage struct {
 	// Role indicates the sender of the message (e.g., user, assistant).
-	Role session.MessageRole
+	Role store.MessageRole
 	// Content holds the key content parts of the message.
-	Content []session.Content
+	Content []store.Content
 }
 
 // ModelProvider represents a service that provides LLMs (e.g. Gemini, OpenAI).

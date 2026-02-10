@@ -1,13 +1,14 @@
-package session
+package store
 
 // Manager defines the interface for managing sessions in a specific directory.
 type Manager interface {
-	// New initializes a new session.
+	// NewSession initializes a new session.
+	// agentID: ID of the agent configuration to use.
 	// parentSessionID: Optional ID of the session this one was branched from.
-	New(parentSessionID string) (Session, error)
+	NewSession(agentID, parentSessionID string) (Session, error)
 
-	// Load opens an existing session file by its ID.
-	Load(id string) (Session, error)
+	// LoadSession opens an existing session file by its ID.
+	LoadSession(id string) (Session, error)
 
 	// ContinueRecent finds and loads the most recently modified session in the directory.
 	ContinueRecent() (Session, error)
@@ -16,14 +17,23 @@ type Manager interface {
 	// id: ID of the source session.
 	ForkFrom(id string) (Session, error)
 
-	// List returns metadata for all session files in the managed directory.
-	List() ([]SessionInfo, error)
+	// ListSessions returns metadata for all session files in the managed directory.
+	ListSessions() ([]SessionInfo, error)
 
 	// Subscribe returns a channel that emits session IDs when an event occurs in any managed session.
 	Subscribe() <-chan string
 
-	// SetStatus updates the status of a session.
-	SetStatus(id, status string) error
+	// SetSessionStatus updates the status of a session.
+	SetSessionStatus(id, status string) error
+
+	// NewAgent creates a new agent configuration.
+	NewAgent(a *Agent) error
+
+	// ListAgents returns all available agents.
+	ListAgents() ([]Agent, error)
+
+	// GetAgent returns a specific agent by ID.
+	GetAgent(id string) (*Agent, error)
 }
 
 // Session defines the interface for interacting with a single conversation session.
@@ -34,6 +44,9 @@ type Session interface {
 
 	// Path returns the absolute path to the session's storage file.
 	Path() string
+
+	// Header returns the session metadata.
+	Header() Header
 
 	// LeafID returns the ID of the current tip of the conversation tree.
 	LeafID() string

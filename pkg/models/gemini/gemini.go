@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
 	"google.golang.org/genai"
 )
 
@@ -153,12 +153,12 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 		var parts []*genai.Part
 		for _, c := range msg.Content {
 			switch c.Type {
-			case session.ContentTypeText:
+			case store.ContentTypeText:
 				parts = append(parts, &genai.Part{
 					Text:             c.Text.Content,
 					ThoughtSignature: c.Text.ThoughtSignature,
 				})
-			case session.ContentTypeToolUse:
+			case store.ContentTypeToolUse:
 				toolMap[c.ToolUse.ID] = c.ToolUse.Name
 				parts = append(parts, &genai.Part{
 					FunctionCall: &genai.FunctionCall{
@@ -168,7 +168,7 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 					},
 					ThoughtSignature: c.ToolUse.ThoughtSignature,
 				})
-			case session.ContentTypeToolResult:
+			case store.ContentTypeToolResult:
 				name := toolMap[c.ToolResult.ToolUseID]
 				if name == "" {
 					name = sandbox.ToolNameRunIPythonCell
@@ -186,9 +186,9 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 		}
 
 		role := "user"
-		if msg.Role == session.RoleAssistant {
+		if msg.Role == store.RoleAssistant {
 			role = "model"
-		} else if msg.Role == session.RoleTool {
+		} else if msg.Role == store.RoleTool {
 			role = "user"
 		}
 
@@ -221,7 +221,7 @@ type geminiStream struct {
 
 func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 	var fullText strings.Builder
-	var toolCalls []session.Content
+	var toolCalls []store.Content
 
 	slog.Debug("Aggregating Gemini response stream")
 
@@ -250,9 +250,9 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 						if id == "" {
 							id = "call-" + uuid.New().String()
 						}
-						toolCalls = append(toolCalls, session.Content{
-							Type: session.ContentTypeToolUse,
-							ToolUse: &session.ToolUseContent{
+						toolCalls = append(toolCalls, store.Content{
+							Type: store.ContentTypeToolUse,
+							ToolUse: &store.ToolUseContent{
 								ID:               id,
 								Name:             fc.Name,
 								Input:            fc.Args,
@@ -265,11 +265,11 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 		}
 	}
 
-	content := []session.Content{}
+	content := []store.Content{}
 	if fullText.Len() > 0 {
-		content = append(content, session.Content{
-			Type: session.ContentTypeText,
-			Text: &session.TextContent{
+		content = append(content, store.Content{
+			Type: store.ContentTypeText,
+			Text: &store.TextContent{
 				Content:          fullText.String(),
 				ThoughtSignature: textSignature,
 			},
@@ -278,7 +278,7 @@ func (s *geminiStream) FullMessage() (models.AgentMessage, error) {
 	content = append(content, toolCalls...)
 
 	msg := models.AgentMessage{
-		Role:    session.RoleAssistant,
+		Role:    store.RoleAssistant,
 		Content: content,
 	}
 

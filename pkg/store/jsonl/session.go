@@ -10,27 +10,43 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
 )
 
-// Session implements the session.Session interface using a JSONL file.
+// Session implements the store.Session interface using a JSONL file.
 type Session struct {
 	mu         sync.RWMutex
 	id         string
 	filePath   string
-	entries    map[string]session.Entry // ID -> Entry lookup
-	leafID     string                   // Current tip of the tree
+	entries    map[string]store.Entry // ID -> Entry lookup
+	leafID     string                 // Current tip of the tree
 	fileHandle *os.File
 	labels     map[string]string // EntryID -> Current Label
 	notify     func(string)
+	header     store.Header
 }
 
 func (s *Session) ID() string     { return s.id }
 func (s *Session) Path() string   { return s.filePath }
 func (s *Session) LeafID() string { return s.leafID }
 
+// Header returns the session metadata.
+// Note: In a real implementation, we might want to cache this or re-read it.
+// For now, we rely on the fact that NewSession sets it up.
+// But wait, s.entries doesn't contain the header.
+// We need to store the header in the struct or read it from file.
+// Let's modify the struct to store it.
+func (s *Session) Header() store.Header {
+	// TODO: Store header in struct during load/creation.
+	// For now, let's read it from file effectively or store it.
+	// We'll update struct in a separate edit if needed, or just read start of file?
+	// Reading file is safer but slower.
+	// Let's assume we update struct to hold it.
+	return s.header
+}
+
 // Append persists a generic entry and advances the leaf pointer.
-func (s *Session) Append(e session.Entry) error {
+func (s *Session) Append(e store.Entry) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -50,7 +66,7 @@ func (s *Session) Append(e session.Entry) error {
 	s.entries[e.ID] = e
 	s.leafID = e.ID
 
-	if e.Type == session.TypeLabel && e.Label != nil {
+	if e.Type == store.TypeLabel && e.Label != nil {
 		s.labels[e.Label.TargetID] = e.Label.Label
 	}
 
@@ -61,12 +77,12 @@ func (s *Session) Append(e session.Entry) error {
 	return nil
 }
 
-func (s *Session) AppendMessage(role session.MessageRole, content []session.Content) (string, error) {
+func (s *Session) AppendMessage(role store.MessageRole, content []store.Content) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeMessage,
+	e := store.Entry{
+		Type: store.TypeMessage,
 		ID:   id,
-		Message: &session.MessageEntry{
+		Message: &store.MessageEntry{
 			Role:    role,
 			Content: content,
 		},
@@ -79,10 +95,10 @@ func (s *Session) AppendMessage(role session.MessageRole, content []session.Cont
 
 func (s *Session) AppendThinkingLevelChange(level string) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeThinkingLevel,
+	e := store.Entry{
+		Type: store.TypeThinkingLevel,
 		ID:   id,
-		ThinkingLevel: &session.ThinkingLevelEntry{
+		ThinkingLevel: &store.ThinkingLevelEntry{
 			ThinkingLevel: level,
 		},
 	}
@@ -94,10 +110,10 @@ func (s *Session) AppendThinkingLevelChange(level string) (string, error) {
 
 func (s *Session) AppendModelChange(provider, modelID string) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeModelChange,
+	e := store.Entry{
+		Type: store.TypeModelChange,
 		ID:   id,
-		ModelChange: &session.ModelChangeEntry{
+		ModelChange: &store.ModelChangeEntry{
 			Provider: provider,
 			ModelID:  modelID,
 		},
@@ -110,10 +126,10 @@ func (s *Session) AppendModelChange(provider, modelID string) (string, error) {
 
 func (s *Session) AppendCompaction(summary, firstKeptID string, tokens int) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeCompaction,
+	e := store.Entry{
+		Type: store.TypeCompaction,
 		ID:   id,
-		Compaction: &session.CompactionEntry{
+		Compaction: &store.CompactionEntry{
 			Summary:          summary,
 			FirstKeptEntryID: firstKeptID,
 			TokensBefore:     tokens,
@@ -127,10 +143,10 @@ func (s *Session) AppendCompaction(summary, firstKeptID string, tokens int) (str
 
 func (s *Session) AppendSessionInfo(name string) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeSessionInfo,
+	e := store.Entry{
+		Type: store.TypeSessionInfo,
 		ID:   id,
-		SessionInfo: &session.SessionInfoEntry{
+		SessionInfo: &store.SessionInfoEntry{
 			Name: name,
 		},
 	}
@@ -142,10 +158,10 @@ func (s *Session) AppendSessionInfo(name string) (string, error) {
 
 func (s *Session) AppendCustomEntry(customType string, data map[string]any) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeCustom,
+	e := store.Entry{
+		Type: store.TypeCustom,
 		ID:   id,
-		Custom: &session.CustomEntry{
+		Custom: &store.CustomEntry{
 			CustomType: customType,
 			Data:       data,
 		},
@@ -158,10 +174,10 @@ func (s *Session) AppendCustomEntry(customType string, data map[string]any) (str
 
 func (s *Session) SetLabel(targetID string, label string) (string, error) {
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeLabel,
+	e := store.Entry{
+		Type: store.TypeLabel,
 		ID:   id,
-		Label: &session.LabelEntry{
+		Label: &store.LabelEntry{
 			TargetID: targetID,
 			Label:    label,
 		},
@@ -190,10 +206,10 @@ func (s *Session) BranchWithSummary(branchFromID string, summary string) (string
 	}
 
 	id := uuid.New().String()
-	e := session.Entry{
-		Type: session.TypeBranchSummary,
+	e := store.Entry{
+		Type: store.TypeBranchSummary,
 		ID:   id,
-		BranchSummary: &session.BranchSummaryEntry{
+		BranchSummary: &store.BranchSummaryEntry{
 			Summary: summary,
 			FromID:  branchFromID,
 		},
@@ -205,16 +221,25 @@ func (s *Session) BranchWithSummary(branchFromID string, summary string) (string
 }
 
 func (s *Session) CreateBranchedSession(leafID string) (string, error) {
-	dir := filepath.Dir(s.filePath)
+	// Root dir is two levels up from session file (sessions/id.jsonl)
+	rootDir := filepath.Dir(filepath.Dir(s.filePath))
 
-	newS, err := NewManager(dir).New(s.id)
+	// Create a new manager to create the session.
+	// NOTE: This assumes standard directory structure.
+	m := NewManager(rootDir)
+
+	// TODO: AgentID should be propagated.
+	// We read it from the current session header.
+	agentID := s.header.Agent.ID
+
+	newS, err := m.NewSession(agentID, s.id)
 	if err != nil {
 		return "", err
 	}
 	defer newS.Close()
 
 	s.mu.RLock()
-	var path []session.Entry
+	var path []store.Entry
 	currID := leafID
 	for currID != "" {
 		e, ok := s.entries[currID]
@@ -222,7 +247,7 @@ func (s *Session) CreateBranchedSession(leafID string) (string, error) {
 			s.mu.RUnlock()
 			return "", fmt.Errorf("broken path at %s", currID)
 		}
-		path = append([]session.Entry{e}, path...)
+		path = append([]store.Entry{e}, path...)
 		if e.ParentID == nil {
 			break
 		}
@@ -239,11 +264,11 @@ func (s *Session) CreateBranchedSession(leafID string) (string, error) {
 	return newS.ID(), nil
 }
 
-func (s *Session) GetContext() ([]session.Entry, error) {
+func (s *Session) GetContext() ([]store.Entry, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var fullPath []session.Entry
+	var fullPath []store.Entry
 	currID := s.leafID
 
 	for currID != "" {
@@ -251,7 +276,7 @@ func (s *Session) GetContext() ([]session.Entry, error) {
 		if !ok {
 			return nil, fmt.Errorf("broken parent link: %s", currID)
 		}
-		fullPath = append([]session.Entry{e}, fullPath...)
+		fullPath = append([]store.Entry{e}, fullPath...)
 
 		if e.ParentID == nil {
 			break
@@ -259,11 +284,11 @@ func (s *Session) GetContext() ([]session.Entry, error) {
 		currID = *e.ParentID
 	}
 
-	var mostRecentCompaction *session.CompactionEntry
+	var mostRecentCompaction *store.CompactionEntry
 	compactionIndex := -1
 
 	for i := len(fullPath) - 1; i >= 0; i-- {
-		if fullPath[i].Type == session.TypeCompaction {
+		if fullPath[i].Type == store.TypeCompaction {
 			mostRecentCompaction = fullPath[i].Compaction
 			compactionIndex = i
 			break
@@ -274,14 +299,14 @@ func (s *Session) GetContext() ([]session.Entry, error) {
 		return fullPath, nil
 	}
 
-	resolved := []session.Entry{fullPath[compactionIndex]}
+	resolved := []store.Entry{fullPath[compactionIndex]}
 	firstKeptID := mostRecentCompaction.FirstKeptEntryID
 	include := false
 	for _, e := range fullPath {
 		if e.ID == firstKeptID {
 			include = true
 		}
-		if include && e.Type != session.TypeCompaction {
+		if include && e.Type != store.TypeCompaction {
 			resolved = append(resolved, e)
 		}
 	}
@@ -289,12 +314,12 @@ func (s *Session) GetContext() ([]session.Entry, error) {
 	return resolved, nil
 }
 
-func (s *Session) GetTree() ([]session.TreeNode, error) {
+func (s *Session) GetTree() ([]store.TreeNode, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	byParent := make(map[string][]session.Entry)
-	var roots []session.Entry
+	byParent := make(map[string][]store.Entry)
+	var roots []store.Entry
 
 	for _, e := range s.entries {
 		if e.ParentID == nil {
@@ -304,9 +329,9 @@ func (s *Session) GetTree() ([]session.TreeNode, error) {
 		}
 	}
 
-	var build func(session.Entry) session.TreeNode
-	build = func(e session.Entry) session.TreeNode {
-		node := session.TreeNode{
+	var build func(store.Entry) store.TreeNode
+	build = func(e store.Entry) store.TreeNode {
+		node := store.TreeNode{
 			Entry: e,
 			Label: s.labels[e.ID],
 		}
@@ -321,7 +346,7 @@ func (s *Session) GetTree() ([]session.TreeNode, error) {
 		return node
 	}
 
-	var tree []session.TreeNode
+	var tree []store.TreeNode
 	sort.Slice(roots, func(i, j int) bool {
 		return roots[i].Timestamp.Before(roots[j].Timestamp)
 	})

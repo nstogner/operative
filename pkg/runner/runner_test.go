@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
+	"github.com/mariozechner/coding-agent/session/pkg/store/jsonl"
 )
 
 // MockModel for testing
@@ -22,9 +22,9 @@ func (m *MockModel) List(ctx context.Context) ([]string, error) {
 func (m *MockModel) Stream(ctx context.Context, modelName string, messages []models.AgentMessage) (models.ModelStream, error) {
 	return &MockStream{
 		Msg: models.AgentMessage{
-			Role: session.RoleAssistant,
-			Content: []session.Content{
-				{Type: session.ContentTypeText, Text: &session.TextContent{Content: m.Response}},
+			Role: store.RoleAssistant,
+			Content: []store.Content{
+				{Type: store.ContentTypeText, Text: &store.TextContent{Content: m.Response}},
 			},
 		},
 	}, nil
@@ -44,7 +44,17 @@ func TestRunnerIntegration(t *testing.T) {
 	dir := t.TempDir()
 	mgr := jsonl.NewManager(dir)
 
+	// Create default agent for testing
+	if err := mgr.NewAgent(&store.Agent{
+		ID:    "default",
+		Model: "mock-model",
+	}); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
 	mockModel := &MockModel{Response: "Response from Agent"}
+	// Runner New signature: New(manager, model, modelName, sandboxManager)
+	// Make sure imported runner uses 'store.Manager' now
 	r := New(mgr, mockModel, "mock-model", nil)
 
 	// 2. Start Runner in background
@@ -61,14 +71,15 @@ func TestRunnerIntegration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 3. Create Session and Append Message
-	sess, err := mgr.New("")
+	// Updated NewSession signature: NewSession(agentID, parentSessionID)
+	sess, err := mgr.NewSession("", "")
 	if err != nil {
 		t.Fatalf("Failed to create session: %v", err)
 	}
 	defer sess.Close()
 
-	_, err = sess.AppendMessage(session.RoleUser, []session.Content{
-		{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Hello"}},
+	_, err = sess.AppendMessage(store.RoleUser, []store.Content{
+		{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Hello"}},
 	})
 	if err != nil {
 		t.Fatalf("Failed to append message: %v", err)
@@ -100,7 +111,7 @@ func TestRunnerIntegration(t *testing.T) {
 			// So `sess` variable here won't see the updates automatically unless we refresh it or read the file.
 
 			// Let's create a fresh handle to check
-			checkSess, err := mgr.Load(sess.ID())
+			checkSess, err := mgr.LoadSession(sess.ID())
 			if err != nil {
 				continue
 			}
@@ -111,7 +122,7 @@ func TestRunnerIntegration(t *testing.T) {
 			// We expect: User Message, then Assistant Message
 			if len(entries) >= 2 {
 				last := entries[len(entries)-1]
-				if last.Message != nil && last.Message.Role == session.RoleAssistant {
+				if last.Message != nil && last.Message.Role == store.RoleAssistant {
 					// Success!
 					return
 				}

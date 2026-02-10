@@ -1,4 +1,4 @@
-package session
+package store
 
 import (
 	"time"
@@ -25,6 +25,7 @@ type MessageRole string
 const (
 	RoleUser              MessageRole = "user"
 	RoleAssistant         MessageRole = "assistant"
+	RoleSystem            MessageRole = "system"            // System instructions (from Agent)
 	RoleTool              MessageRole = "tool"              // For tool results
 	RoleBashExecution     MessageRole = "bashExecution"     // Command execution event
 	RoleCustom            MessageRole = "custom"            // Extension-injected data
@@ -32,10 +33,20 @@ const (
 	RoleCompactionSummary MessageRole = "compactionSummary" // Summary of discarded history
 )
 
+// Agent represents a configuration for an AI agent.
+type Agent struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Instructions string   `json:"instructions"`
+	Model        string   `json:"model,omitempty"` // Default model
+	Tools        []string `json:"tools,omitempty"` // Allowed tools
+}
+
 // Header is the first line of the file (metadata)
 type Header struct {
 	Type          EntryType `json:"type"` // Always "session"
 	ID            string    `json:"id"`
+	Agent         Agent     `json:"agent"`
 	Version       int       `json:"version"`
 	ParentSession string    `json:"parent_session,omitempty"`
 	CreatedAt     time.Time `json:"timestamp"`

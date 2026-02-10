@@ -1,0 +1,2 @@
+{"type":"session","id":"60d430f9-4bb8-48c3-9dad-8567f5793a5b","agent_id":"default","version":1,"timestamp":"2026-02-09T10:45:07.128313-05:00"}
+{"type":"message","id":"d2bbb383-b37d-40da-9f92-7311a71078a2","parent_id":null,"timestamp":"2026-02-09T10:45:07.128313-05:00","message":{"role":"system","content":[{"type":"text","text":{"content":"You are a helpful coding assistant. You are an expert in Go and software architecture. Always use Markdown."}}]}}

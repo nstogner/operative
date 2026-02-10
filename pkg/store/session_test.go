@@ -1,4 +1,4 @@
-package session_test
+package store_test
 
 import (
 	"fmt"
@@ -6,30 +6,43 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
+	"github.com/mariozechner/coding-agent/session/pkg/store/jsonl"
 )
 
-func TestSession_AppendAndContext(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tempDir)
-
+func setupManager(t *testing.T) (store.Manager, string) {
+	tempDir := t.TempDir()
 	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+
+	// Create default agent for testing
+	defaultAgent := &store.Agent{
+		ID:           "default",
+		Name:         "Default Agent",
+		Instructions: "You are a test agent.",
+		Model:        "test-model",
+	}
+	if err := m.NewAgent(defaultAgent); err != nil {
+		t.Fatalf("failed to create default agent: %v", err)
+	}
+
+	return m, tempDir
+}
+
+func TestSession_AppendAndContext(t *testing.T) {
+	m, tempDir := setupManager(t)
+	defer os.RemoveAll(tempDir)
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
 	// 1. Append messages
-	msg1, err := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Hello"}}})
+	msg1, err := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Hello"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg2, err := s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Hi"}}})
+	msg2, err := s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Hi"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +64,7 @@ func TestSession_AppendAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg3, err := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "New branch"}}})
+	msg3, err := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "New branch"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +85,7 @@ func TestSession_AppendAndContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg4, err := s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "After compaction"}}})
+	msg4, err := s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "After compaction"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +97,7 @@ func TestSession_AppendAndContext(t *testing.T) {
 	if len(ctx) != 3 {
 		t.Errorf("expected 3 entries after compaction, got %d", len(ctx))
 	}
-	if ctx[0].Type != session.TypeCompaction || ctx[1].ID != msg3 || ctx[2].ID != msg4 {
+	if ctx[0].Type != store.TypeCompaction || ctx[1].ID != msg3 || ctx[2].ID != msg4 {
 		t.Error("compaction context resolution mismatch")
 	}
 
@@ -92,23 +105,18 @@ func TestSession_AppendAndContext(t *testing.T) {
 }
 
 func TestSession_Persistence(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_persist")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg1, _ := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Store me"}}})
+	msg1, _ := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Store me"}}})
 	id := s.ID()
 	s.Close()
 
 	// Reload
-	s2, err := m.Load(id)
+	s2, err := m.LoadSession(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,14 +130,9 @@ func TestSession_Persistence(t *testing.T) {
 }
 
 func TestSession_MetadataChanges(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_meta")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +140,7 @@ func TestSession_MetadataChanges(t *testing.T) {
 
 	s.AppendThinkingLevelChange("high")
 	s.AppendModelChange("openai", "gpt-4o")
-	s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Configured?"}}})
+	s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Configured?"}}})
 
 	ctx, err := s.GetContext()
 	if err != nil {
@@ -151,22 +154,17 @@ func TestSession_MetadataChanges(t *testing.T) {
 }
 
 func TestSession_LabelsAndTree(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_labels")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
-	id1, _ := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "One"}}})
+	id1, _ := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "One"}}})
 	s.SetLabel(id1, "start")
-	s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Two"}}})
+	s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Two"}}})
 
 	tree, err := s.GetTree()
 	if err != nil {
@@ -181,20 +179,15 @@ func TestSession_LabelsAndTree(t *testing.T) {
 }
 
 func TestSession_BranchingAdvanced(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_branching_adv")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	id1, _ := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Root"}}})
-	s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Path A"}}})
+	id1, _ := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Root"}}})
+	s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Path A"}}})
 
 	// Branch with summary
 	idSummary, err := s.BranchWithSummary(id1, "Summarizing Path A")
@@ -219,15 +212,13 @@ func TestSession_BranchingAdvanced(t *testing.T) {
 }
 
 func TestManager_Extended(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "manager_ext")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s1, _ := m.New("")
-	s1.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Source"}}})
+	s1, err := m.NewSession("", "")
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+	s1.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Source"}}})
 	id1 := s1.ID()
 	s1.Close()
 
@@ -243,7 +234,7 @@ func TestManager_Extended(t *testing.T) {
 	}
 
 	// List
-	list, err := m.List()
+	list, err := m.ListSessions()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,17 +256,13 @@ func TestManager_Extended(t *testing.T) {
 }
 
 func TestSession_CustomEntries(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_custom")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, _ := m.New("")
+	s, _ := m.NewSession("", "")
 	defer s.Close()
 
 	data := map[string]any{"key": "value", "count": 42.0} // encoding/json decodes numbers as float64
+	var err error
 	_, err = s.AppendCustomEntry("my-ext", data)
 	if err != nil {
 		t.Fatal(err)
@@ -291,14 +278,9 @@ func TestSession_CustomEntries(t *testing.T) {
 }
 
 func TestSession_Miscellaneous(t *testing.T) {
-	tempDir, err := os.MkdirTemp("", "session_misc")
-	if err != nil {
-		t.Fatal(err)
-	}
+	m, tempDir := setupManager(t)
 	defer os.RemoveAll(tempDir)
-
-	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,12 +305,12 @@ func TestSession_Miscellaneous(t *testing.T) {
 
 	// Test Append() directly
 	directID := "direct-id-123"
-	err = s.Append(session.Entry{
+	err = s.Append(store.Entry{
 		ID:   directID,
-		Type: session.TypeMessage,
-		Message: &session.MessageEntry{
-			Role:    session.RoleUser,
-			Content: []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Direct append"}}},
+		Type: store.TypeMessage,
+		Message: &store.MessageEntry{
+			Role:    store.RoleUser,
+			Content: []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Direct append"}}},
 		},
 	})
 	if err != nil {
@@ -347,7 +329,7 @@ func TestSession_Miscellaneous(t *testing.T) {
 	foundInfo := false
 	foundDirect := false
 	for _, e := range ctx {
-		if e.Type == session.TypeSessionInfo && e.SessionInfo.Name == "My Test Session" {
+		if e.Type == store.TypeSessionInfo && e.SessionInfo.Name == "My Test Session" {
 			foundInfo = true
 		}
 		if e.ID == directID {

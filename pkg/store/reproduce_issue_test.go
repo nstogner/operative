@@ -1,11 +1,11 @@
-package session_test
+package store_test
 
 import (
 	"os"
 	"testing"
 
-	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
+	"github.com/mariozechner/coding-agent/session/pkg/store/jsonl"
 )
 
 func TestSession_AppendMultipleAssistantMessages(t *testing.T) {
@@ -16,26 +16,30 @@ func TestSession_AppendMultipleAssistantMessages(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	m := jsonl.NewManager(tempDir)
-	s, err := m.New("")
+	// Create default agent
+	if err := m.NewAgent(&store.Agent{ID: "default"}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := m.NewSession("", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer s.Close()
 
 	// 1. Append User Message
-	msg1, err := s.AppendMessage(session.RoleUser, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "User Request"}}})
+	msg1, err := s.AppendMessage(store.RoleUser, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "User Request"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 2. Append Assistant Message 1
-	msg2, err := s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Assistant Response 1"}}})
+	msg2, err := s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Assistant Response 1"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// 3. Append Assistant Message 2
-	msg3, err := s.AppendMessage(session.RoleAssistant, []session.Content{{Type: session.ContentTypeText, Text: &session.TextContent{Content: "Assistant Response 2"}}})
+	msg3, err := s.AppendMessage(store.RoleAssistant, []store.Content{{Type: store.ContentTypeText, Text: &store.TextContent{Content: "Assistant Response 2"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

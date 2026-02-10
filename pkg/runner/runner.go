@@ -7,19 +7,19 @@ import (
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
 )
 
 // Runner coordinates the execution of agents based on session events.
 type Runner struct {
-	manager        session.Manager
+	manager        store.Manager
 	model          models.ModelProvider
 	modelName      string
 	sandboxManager sandbox.Manager
 	ErrorChan      chan error
 }
 
-func New(manager session.Manager, model models.ModelProvider, modelName string, sandboxManager sandbox.Manager) *Runner {
+func New(manager store.Manager, model models.ModelProvider, modelName string, sandboxManager sandbox.Manager) *Runner {
 	return &Runner{
 		manager:        manager,
 		model:          model,
@@ -39,7 +39,7 @@ func (r *Runner) Start(ctx context.Context) error {
 			return ctx.Err()
 		case sessionID := <-events:
 			// Load session
-			sess, err := r.manager.Load(sessionID)
+			sess, err := r.manager.LoadSession(sessionID)
 			if err != nil {
 				slog.Error("Error loading session", "sessionID", sessionID, "error", err)
 				continue

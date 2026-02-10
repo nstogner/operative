@@ -10,8 +10,8 @@ import (
 	"github.com/mariozechner/coding-agent/session/pkg/models/gemini"
 	"github.com/mariozechner/coding-agent/session/pkg/runner"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox/docker"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
-	"github.com/mariozechner/coding-agent/session/pkg/session/jsonl"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
+	"github.com/mariozechner/coding-agent/session/pkg/store/jsonl"
 )
 
 func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
@@ -45,6 +45,11 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 	dir := t.TempDir()
 	sessMgr := jsonl.NewManager(dir)
 
+	// Create default agent
+	if err := sessMgr.NewAgent(&store.Agent{ID: "default"}); err != nil {
+		t.Fatalf("Failed to create default agent: %v", err)
+	}
+
 	t.Log("Initializing Docker manager...")
 	sbMgr, err := docker.New()
 	if err != nil {
@@ -64,17 +69,17 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 	// Scenario 1: Prompt Self
 	t.Run("PromptSelf", func(t *testing.T) {
 		t.Log("Starting PromptSelf scenario...")
-		sess, err := sessMgr.New("")
+		sess, err := sessMgr.NewSession("", "")
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
 		}
 		defer sess.Close()
 
 		// Helper to wait for a specific message content
-		waitForMessage := func(target string, role session.MessageRole) bool {
+		waitForMessage := func(target string, role store.MessageRole) bool {
 			start := time.Now()
 			for time.Since(start) < 60*time.Second {
-				loadedSess, err := sessMgr.Load(sess.ID())
+				loadedSess, err := sessMgr.LoadSession(sess.ID())
 				if err != nil {
 					time.Sleep(1 * time.Second)
 					continue
@@ -85,7 +90,7 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 				for _, e := range entries {
 					if e.Message != nil && e.Message.Role == role {
 						for _, c := range e.Message.Content {
-							if c.Type == session.ContentTypeText && c.Text != nil {
+							if c.Type == store.ContentTypeText && c.Text != nil {
 								// Exact match to avoid matching the prompt instruction which contains the string
 								if c.Text.Content == target {
 									return true
@@ -101,8 +106,8 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 
 		// Initial instruction
 		query := "Run python code: prompt_self('Integration Test Self Prompt')"
-		_, err = sess.AppendMessage(session.RoleUser, []session.Content{
-			{Type: session.ContentTypeText, Text: &session.TextContent{Content: query}},
+		_, err = sess.AppendMessage(store.RoleUser, []store.Content{
+			{Type: store.ContentTypeText, Text: &store.TextContent{Content: query}},
 		})
 		if err != nil {
 			t.Fatalf("Failed to append user message: %v", err)
@@ -112,7 +117,7 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 		// which appends a USER message "Integration Test Self Prompt"
 
 		t.Log("Waiting for self-prompted message...")
-		if !waitForMessage("Integration Test Self Prompt", session.RoleUser) {
+		if !waitForMessage("Integration Test Self Prompt", store.RoleUser) {
 			t.Fatal("Timed out waiting for prompt_self message")
 		}
 		t.Log("SUCCESS: Found prompt_self message")
@@ -121,7 +126,7 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 	// Scenario 2: Prompt Model
 	t.Run("PromptModel", func(t *testing.T) {
 		t.Log("Starting PromptModel scenario...")
-		sess, err := sessMgr.New("")
+		sess, err := sessMgr.NewSession("", "")
 		if err != nil {
 			t.Fatalf("Failed to create session: %v", err)
 		}
@@ -132,8 +137,8 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 		// We strictly instruct it that prompt_model is available in the python environment.
 		query := "Run python code to call the `prompt_model` function. Use this code: `print(prompt_model('Reply with only the word: SQUEAMISH'))`. The `prompt_model` function is already defined in the environment."
 
-		_, err = sess.AppendMessage(session.RoleUser, []session.Content{
-			{Type: session.ContentTypeText, Text: &session.TextContent{Content: query}},
+		_, err = sess.AppendMessage(store.RoleUser, []store.Content{
+			{Type: store.ContentTypeText, Text: &store.TextContent{Content: query}},
 		})
 		if err != nil {
 			t.Fatalf("Failed to append user message: %v", err)
@@ -151,7 +156,7 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 		found := false
 		start := time.Now()
 		for time.Since(start) < 60*time.Second {
-			loadedSess, err := sessMgr.Load(sess.ID())
+			loadedSess, err := sessMgr.LoadSession(sess.ID())
 			if err != nil {
 				time.Sleep(1 * time.Second)
 				continue
@@ -161,9 +166,9 @@ func TestIntegration_Runner_SandboxCallbacks(t *testing.T) {
 
 			for _, e := range entries {
 				// Look for ToolResult (RoleTool) containing SQUEAMISH
-				if e.Message != nil && e.Message.Role == session.RoleTool {
+				if e.Message != nil && e.Message.Role == store.RoleTool {
 					for _, c := range e.Message.Content {
-						if c.Type == session.ContentTypeToolResult && c.ToolResult != nil {
+						if c.Type == store.ContentTypeToolResult && c.ToolResult != nil {
 							if strings.Contains(c.ToolResult.Content, "SQUEAMISH") {
 								found = true
 								break

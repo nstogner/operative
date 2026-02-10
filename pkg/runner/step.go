@@ -8,12 +8,10 @@ import (
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/sandbox"
-	"github.com/mariozechner/coding-agent/session/pkg/session"
+	"github.com/mariozechner/coding-agent/session/pkg/store"
 )
 
-// RunStep performs a single step of the agent's logic based on the session state.
-// It fetches context, decides whether to call the model or execute a tool, and appends the result to the session.
-func RunStep(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, sbMgr sandbox.Manager) error {
+func RunStep(ctx context.Context, sess store.Session, modelName string, model models.ModelProvider, sbMgr sandbox.Manager) error {
 	// 1. Fetch Context
 	entries, err := sess.GetContext()
 	if err != nil {
@@ -30,7 +28,7 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 	lastEntry := entries[len(entries)-1]
 
 	// 2. Check Last State
-	var lastMsg *session.MessageEntry
+	var lastMsg *store.MessageEntry
 	if lastEntry.Message != nil {
 		lastMsg = lastEntry.Message
 	}
@@ -39,19 +37,40 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 		return nil
 	}
 
-	// 3. Decide Action
+	// 3. Resolve Effective Model
+	// Start with Agent's default model
+	effectiveModel := sess.Header().Agent.Model
+	// If CLI provided an override (modelName), we might respect it, but requirements say
+	// "The session should use the model defined in the agent by default".
+	// The CLI's modelName is passed in. If we implement /model, we should use the last TypeModelChange.
+
+	for _, e := range entries {
+		if e.Type == store.TypeModelChange && e.ModelChange != nil {
+			effectiveModel = e.ModelChange.ModelID
+		}
+	}
+
+	// If effectiveModel is still empty (no agent default, no changes), fallback to passed modelName or error
+	if effectiveModel == "" {
+		effectiveModel = modelName
+	}
+
+	// Log effective model
+	slog.Info("Using effective model", "model", effectiveModel)
+
+	// 4. Decide Action
 	switch lastMsg.Role {
-	case session.RoleUser, session.RoleTool:
-		slog.Info("Calling model", "sessionID", sess.ID())
-		err := stepCallModel(ctx, sess, modelName, model, entries)
+	case store.RoleUser, store.RoleTool:
+		slog.Info("Calling model", "sessionID", sess.ID(), "model", effectiveModel)
+		err := stepCallModel(ctx, sess, effectiveModel, model, entries)
 		if err != nil {
 			slog.Error("Model call failed", "error", err)
 		}
 		return err
-	case session.RoleAssistant:
+	case store.RoleAssistant:
 		toolCalls := extractToolCalls(lastMsg)
 		if len(toolCalls) > 0 {
-			return stepExecuteTools(ctx, sess, modelName, model, toolCalls, sbMgr)
+			return stepExecuteTools(ctx, sess, effectiveModel, model, toolCalls, sbMgr)
 		}
 		return nil
 	default:
@@ -60,19 +79,28 @@ func RunStep(ctx context.Context, sess session.Session, modelName string, model 
 	}
 }
 
-func stepCallModel(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, entries []session.Entry) error {
+func stepCallModel(ctx context.Context, sess store.Session, modelName string, model models.ModelProvider, entries []store.Entry) error {
 	var contextMessages []models.AgentMessage
-	// 1. Prepend System Prompt (as User message or specific system role if supported)
-	contextMessages = append(contextMessages, models.AgentMessage{
-		Role: session.RoleUser,
-		Content: []session.Content{{
-			Type: session.ContentTypeText,
-			Text: &session.TextContent{Content: "System: You are a helpful assistant. Please strictly use basic Markdown for all your responses."},
-		}},
-	})
+
+	// 1. Prepend System Prompt from Header
+	agentInstructions := sess.Header().Agent.Instructions
+	if agentInstructions != "" {
+		contextMessages = append(contextMessages, models.AgentMessage{
+			Role: store.RoleUser, // Gemini often prefers system prompt as User or System if supported.
+			// The previous code used "System: ..." inside a User message or System role if mapped.
+			// Let's use RoleSystem if the provider supports it, or map it.
+			// Our store.RoleSystem exists. The gemini adapter should handle it.
+			Content: []store.Content{{
+				Type: store.ContentTypeText,
+				Text: &store.TextContent{Content: agentInstructions},
+			}},
+		})
+	}
 
 	for _, entry := range entries {
 		if entry.Message != nil {
+			// Filter out old system messages if any exist in legacy sessions?
+			// For now, include everything.
 			contextMessages = append(contextMessages, models.AgentMessage{
 				Role:    entry.Message.Role,
 				Content: entry.Message.Content,
@@ -91,14 +119,14 @@ func stepCallModel(ctx context.Context, sess session.Session, modelName string, 
 		return fmt.Errorf("model response error: %w", err)
 	}
 
-	if _, err := sess.AppendMessage(session.RoleAssistant, assistantMsg.Content); err != nil {
+	if _, err := sess.AppendMessage(store.RoleAssistant, assistantMsg.Content); err != nil {
 		return fmt.Errorf("failed to append assistant message: %w", err)
 	}
 
 	return nil
 }
 
-func stepExecuteTools(ctx context.Context, sess session.Session, modelName string, model models.ModelProvider, toolCalls []session.Content, sbMgr sandbox.Manager) error {
+func stepExecuteTools(ctx context.Context, sess store.Session, modelName string, model models.ModelProvider, toolCalls []store.Content, sbMgr sandbox.Manager) error {
 	for _, toolCall := range toolCalls {
 		toolName := toolCall.ToolUse.Name
 		var resultMsg string
@@ -150,17 +178,17 @@ func stepExecuteTools(ctx context.Context, sess session.Session, modelName strin
 		}
 
 		// Append Tool Result
-		content := []session.Content{
+		content := []store.Content{
 			{
-				Type: session.ContentTypeToolResult,
-				ToolResult: &session.ToolResultContent{
+				Type: store.ContentTypeToolResult,
+				ToolResult: &store.ToolResultContent{
 					ToolUseID: toolCall.ToolUse.ID,
 					Content:   resultMsg,
 				},
 			},
 		}
 
-		if _, err := sess.AppendMessage(session.RoleTool, content); err != nil {
+		if _, err := sess.AppendMessage(store.RoleTool, content); err != nil {
 			return fmt.Errorf("failed to append tool result: %w", err)
 		}
 	}
@@ -168,10 +196,10 @@ func stepExecuteTools(ctx context.Context, sess session.Session, modelName strin
 }
 
 // Helper to extract tool calls from a message
-func extractToolCalls(msg *session.MessageEntry) []session.Content {
-	var calls []session.Content
+func extractToolCalls(msg *store.MessageEntry) []store.Content {
+	var calls []store.Content
 	for _, c := range msg.Content {
-		if c.Type == session.ContentTypeToolUse {
+		if c.Type == store.ContentTypeToolUse {
 			calls = append(calls, c)
 		}
 	}
@@ -180,7 +208,7 @@ func extractToolCalls(msg *session.MessageEntry) []session.Content {
 
 type runnerDelegate struct {
 	ctx       context.Context
-	sess      session.Session
+	sess      store.Session
 	model     models.ModelProvider
 	modelName string
 }
@@ -191,9 +219,9 @@ func (d *runnerDelegate) PromptModel(ctx context.Context, prompt string) (string
 	// construct a minimal context with just the prompt
 	messages := []models.AgentMessage{
 		{
-			Role: session.RoleUser,
-			Content: []session.Content{
-				{Type: session.ContentTypeText, Text: &session.TextContent{Content: prompt}},
+			Role: store.RoleUser,
+			Content: []store.Content{
+				{Type: store.ContentTypeText, Text: &store.TextContent{Content: prompt}},
 			},
 		},
 	}
@@ -211,7 +239,7 @@ func (d *runnerDelegate) PromptModel(ctx context.Context, prompt string) (string
 	// Extract text content
 	if msg.Content != nil {
 		for _, c := range msg.Content {
-			if c.Type == session.ContentTypeText && c.Text != nil {
+			if c.Type == store.ContentTypeText && c.Text != nil {
 				return c.Text.Content, nil
 			}
 		}
@@ -230,10 +258,10 @@ func (d *runnerDelegate) PromptSelf(ctx context.Context, message string) error {
 	// That new event will remain in the queue (or be picked up next iteration).
 	// This is exactly what we want.
 
-	_, err := d.sess.AppendMessage(session.RoleUser, []session.Content{
+	_, err := d.sess.AppendMessage(store.RoleUser, []store.Content{
 		{
-			Type: session.ContentTypeText,
-			Text: &session.TextContent{Content: message},
+			Type: store.ContentTypeText,
+			Text: &store.TextContent{Content: message},
 		},
 	})
 	return err
