@@ -169,14 +169,39 @@ func (m *Manager) NewSession(agentID, parentSessionID string) (store.Session, er
 	defer m.mu.Unlock()
 
 	// 1. Validate Agent
-	// Always require an agent. If ID is empty, use "default".
+	// Always require an agent. If ID is empty, try "default" or fallback.
 	if agentID == "" {
 		agentID = "default"
 	}
 
+	var agent *store.Agent
 	agent, err := m.GetAgent(agentID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get agent %s: %w", agentID, err)
+		// If requesting "default" and it doesn't exist, try to find ANY agent or create one.
+		if agentID == "default" {
+			agents, listErr := m.ListAgents()
+			if listErr == nil && len(agents) > 0 {
+				// Use the first available agent
+				agent = &agents[0]
+				// We don't change agentID here because the session stores the full agent struct in header.
+				// But we should probably track which ID we used?
+				// The header stores the Agent struct, so it's fine.
+			} else {
+				// No agents exist, create a default one
+				newDefault := &store.Agent{
+					ID:           "default",
+					Name:         "Default Agent",
+					Instructions: "You are a helpful assistant.",
+					Model:        "models/gemini-2.5-flash-latest", // Use a sensible default
+				}
+				if createErr := m.NewAgent(newDefault); createErr != nil {
+					return nil, fmt.Errorf("failed to create default agent: %w", createErr)
+				}
+				agent = newDefault
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get agent %s: %w", agentID, err)
+		}
 	}
 
 	if err := os.MkdirAll(m.sessDir, 0755); err != nil {
@@ -385,6 +410,39 @@ func (m *Manager) NewAgent(a *store.Agent) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+func (m *Manager) UpdateAgent(a *store.Agent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if a.ID == "" {
+		return fmt.Errorf("agent ID is required for update")
+	}
+
+	path := filepath.Join(m.agentDir, a.ID+".json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("agent %s not found", a.ID)
+	}
+
+	data, err := json.MarshalIndent(a, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+func (m *Manager) DeleteAgent(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	path := filepath.Join(m.agentDir, id+".json")
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return fmt.Errorf("agent %s not found", id)
+	}
+
+	return os.Remove(path)
 }
 
 func (m *Manager) ListAgents() ([]store.Agent, error) {

@@ -27,6 +27,34 @@
       "status": "ended",
       "created": "2026-02-09T10:50:08.044959-05:00",
       "modified": "2026-02-09T10:50:08.044959-05:00"
+    },
+    {
+      "id": "435657d4-a3eb-4dde-ad43-5cd4457fe904",
+      "path": "/Users/nick/scratch/ctx/store/sessions/435657d4-a3eb-4dde-ad43-5cd4457fe904.jsonl",
+      "status": "active",
+      "created": "2026-02-09T21:11:11.02326-05:00",
+      "modified": "2026-02-09T21:11:11.02326-05:00"
+    },
+    {
+      "id": "e70c5c68-8a93-4ba4-afd9-a728d4aa24d4",
+      "path": "/Users/nick/scratch/ctx/store/sessions/e70c5c68-8a93-4ba4-afd9-a728d4aa24d4.jsonl",
+      "status": "active",
+      "created": "2026-02-09T21:17:30.992974-05:00",
+      "modified": "2026-02-09T21:17:30.992974-05:00"
+    },
+    {
+      "id": "117605da-2dab-4bf4-be66-3720807dd914",
+      "path": "/Users/nick/scratch/ctx/store/sessions/117605da-2dab-4bf4-be66-3720807dd914.jsonl",
+      "status": "active",
+      "created": "2026-02-09T21:29:29.65642-05:00",
+      "modified": "2026-02-09T21:29:29.65642-05:00"
+    },
+    {
+      "id": "98a13485-47eb-44d5-80ff-4c1866b9cdcb",
+      "path": "/Users/nick/scratch/ctx/store/sessions/98a13485-47eb-44d5-80ff-4c1866b9cdcb.jsonl",
+      "status": "active",
+      "created": "2026-02-09T21:29:42.753594-05:00",
+      "modified": "2026-02-09T21:29:42.753594-05:00"
     }
   ]
 }

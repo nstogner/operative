@@ -29,6 +29,12 @@ type Manager interface {
 	// NewAgent creates a new agent configuration.
 	NewAgent(a *Agent) error
 
+	// UpdateAgent updates an existing agent configuration.
+	UpdateAgent(a *Agent) error
+
+	// DeleteAgent deletes an agent configuration by ID.
+	DeleteAgent(id string) error
+
 	// ListAgents returns all available agents.
 	ListAgents() ([]Agent, error)
 

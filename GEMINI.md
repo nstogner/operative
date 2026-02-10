@@ -2,20 +2,29 @@
 
 ## Project Overview
 
-This is an event-driven CLI coding agent powered by Google Gemini.
+This is an event-driven coding agent powered by Google Gemini, featuring a **React-based Web Interface**.
 
 ### Core Architecture
 
 The system follows a reactive, event-driven pattern:
 1.  **Session Loop**: State is immutable and stored as a sequence of events (messages) in JSONL files.
 2.  **Orchestration**: A background `Runner` listens for file/session updates. When a session changes, the Runner evaluates the state and triggers the next necessary action (calling the LLM or executing a tool).
+3.  **Web Interface**: A React frontend communicates with the Go backend via REST API (for management) and WebSockets (for real-time chat).
 
 ### Packages
 
--   **`cmd/cli`**: The entry point. Provides an interactive REPL.
-    -   Initializes the `GeminiModel`, `ToolRegistry`, and `Runner`.
-    -   Handles user input by appending `User` messages to the session.
-    -   Listens for updates to print `Assistant` responses.
+-   **`cmd/cli`**: The entry point. Starts the HTTP server and Runner.
+    -   Initializes components (`Manager`, `Runner`, `Server`).
+    -   Serves the Web UI.
+
+-   **`pkg/server`**: HTTP and WebSocket server.
+    -   Exposes REST API for Agents and Sessions.
+    -   Handles real-time WebSocket connections for chat.
+    -   Serves embedded static assets (`web/dist`).
+
+-   **`web`**: The Frontend Application.
+    -   Built with **React**, **TypeScript**, **Vite**, **Tailwind CSS**, and **shadcn/ui**.
+    -   Located in `web/` directory.
 
 -   **`pkg/session`**: Message handling.
     -   **`Manager`**: Handles creating, loading, and persisting sessions. Implemented via `jsonl`.
@@ -25,34 +34,47 @@ The system follows a reactive, event-driven pattern:
 -   **`pkg/runner`**: The brain.
     -   **`Runner`**: Subscribes to the `session.Manager`. On event, loads the session and calls `RunStep`.
     -   **`RunStep`**: Stateless logic function.
-        -   If last message is `User` or `ToolResult` -> Calls LLM.
-        -   If last message is `Assistant` with Tool Calls -> Executes Tools.
-        -   Appends results back to Session (triggering another event).
 
 -   **`pkg/models`**: LLM Abstractions.
     -   `ModelProvider`: Interface for listing models and streaming responses.
     -   `pkg/models/gemini`: Implementation using `google-generative-ai-go`.
 
--   **`pkg/tools`**: Capabilities.
-    -   **`Registry`**: dictionaries of available tools.
-    -   **Tools**: `ListFiles`, `ReadFile`, `WriteFile`.
-
 ### Usage
+
+**Prerequisites**:
+-   Go 1.21+
+-   Node.js 18+
+-   `GEMINI_API_KEY` environment variable.
+
+#### Development Mode
+Run the Go backend and Vite dev server concurrently for Hot Module Replacement (HMR).
 ```bash
-export GEMINI_API_KEY="your-key"
-go run cmd/cli/main.go
+make dev
 ```
-1.  Select a model from the list.
-2.  Chat or ask to perform file operations (e.g., "List files in this folder").
+-   Frontend: `http://localhost:5173`
+-   Backend: `http://localhost:8080`
+
+#### Production Build
+Build the frontend and embed it into a single Go binary.
+```bash
+make build
+./bin/gemini
+```
+-   Access at: `http://localhost:8080`
 
 ### Testing
 
--   **Unit Tests**: Run unit tests (skipping integration tests).
+-   **Unit Tests**:
     ```bash
     make test
     ```
 
--   **Integration Tests**: Run integration tests (requires `.env` file with `GEMINI_API_KEY`).
+-   **Integration Tests**:
     ```bash
     make test-integration
+    ```
+
+-   **E2E Tests**:
+    ```bash
+    make test-e2e
     ```
