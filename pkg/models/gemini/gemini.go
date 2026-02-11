@@ -120,7 +120,7 @@ func (m *GeminiModel) List(ctx context.Context) ([]string, error) {
 }
 
 // Stream sends a context to the LLM and returns a stream.
-func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []models.AgentMessage) (models.ModelStream, error) {
+func (m *GeminiModel) Stream(ctx context.Context, modelName string, instructions string, messages []models.AgentMessage) (models.ModelStream, error) {
 	slog.Debug("Gemini.Stream: Request Parameters", "model", modelName, "messageCount", len(messages))
 
 	// Configure Tools
@@ -147,9 +147,29 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 
 	// Convert AgentMessages to genai.Content
 	var contents []*genai.Content
+	var systemInstruction *genai.Content
 	toolMap := make(map[string]string)
 
+	if instructions != "" {
+		systemInstruction = &genai.Content{
+			Parts: []*genai.Part{
+				{Text: instructions},
+			},
+		}
+	}
+
 	for _, msg := range messages {
+		// Handle System Instructions (Legacy check, though interface changed, we might still have some in history?
+		// Actually, if we pass instructions separately, we should ignore RoleSystem in messages or treat them as additional context?)
+		// For now, let's assume RoleSystem is NO LONGER used in messages for the API,
+		// but if it exists in history, we might want to ignore it or append it?
+		// The prompt says "instead of prepending... to the messages array".
+		// So we should probably skip RoleSystem in the loop if we rely on the argument.
+		if msg.Role == store.RoleSystem {
+			// Skip system messages in history as we use the explicit argument
+			continue
+		}
+
 		var parts []*genai.Part
 		for _, c := range msg.Content {
 			switch c.Type {
@@ -201,7 +221,8 @@ func (m *GeminiModel) Stream(ctx context.Context, modelName string, messages []m
 	}
 
 	config := &genai.GenerateContentConfig{
-		Tools: tools,
+		Tools:             tools,
+		SystemInstruction: systemInstruction,
 	}
 
 	streamCtx, cancel := context.WithCancel(ctx)

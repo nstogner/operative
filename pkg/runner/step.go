@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"log/slog"
 
@@ -12,6 +13,10 @@ import (
 )
 
 func RunStep(ctx context.Context, sess store.Session, modelName string, model models.ModelProvider, sbMgr sandbox.Manager) error {
+	// 0. Timeout
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second) // Increased timeout for sandbox startup
+	defer cancel()
+
 	// 1. Fetch Context
 	entries, err := sess.GetContext()
 	if err != nil {
@@ -65,6 +70,11 @@ func RunStep(ctx context.Context, sess store.Session, modelName string, model mo
 		err := stepCallModel(ctx, sess, effectiveModel, model, entries)
 		if err != nil {
 			slog.Error("Model call failed", "error", err)
+			// Report error to user
+			sess.AppendMessage(store.RoleAssistant, []store.Content{{
+				Type: store.ContentTypeText,
+				Text: &store.TextContent{Content: fmt.Sprintf("**Error calling model:** %v", err)},
+			}})
 		}
 		return err
 	case store.RoleAssistant:
@@ -82,25 +92,36 @@ func RunStep(ctx context.Context, sess store.Session, modelName string, model mo
 func stepCallModel(ctx context.Context, sess store.Session, modelName string, model models.ModelProvider, entries []store.Entry) error {
 	var contextMessages []models.AgentMessage
 
-	// 1. Prepend System Prompt from Header
+	// 1. Prepare System Prompt from Header
 	agentInstructions := sess.Header().Agent.Instructions
-	if agentInstructions != "" {
-		contextMessages = append(contextMessages, models.AgentMessage{
-			Role: store.RoleUser, // Gemini often prefers system prompt as User or System if supported.
-			// The previous code used "System: ..." inside a User message or System role if mapped.
-			// Let's use RoleSystem if the provider supports it, or map it.
-			// Our store.RoleSystem exists. The gemini adapter should handle it.
-			Content: []store.Content{{
-				Type: store.ContentTypeText,
-				Text: &store.TextContent{Content: agentInstructions},
-			}},
-		})
-	}
 
+	// Append IPython sandbox instructions
+	agentInstructions += `
+
+SYSTEM NOTE: You have access to a sandboxed IPython environment that persists throughout this session.
+You can use it to accomplish tasks that would otherwise require specific tools.
+For example, you can use IPython to:
+- Browse the web
+- Read and write files
+- Run math
+- Import libraries
+- Call built-in functions:
+  - "prompt_self(message: str)"
+    - Example: Prompt yourself in the future using Python threading.
+  - "prompt_model(prompt: str)"
+    - Example: Prompt a model to inspect a large file and return a summary.
+
+Whenever you have a task that will require processing a lot of text, use the IPython prompt_model function to do it,
+and always return the result of that function instead of returning the raw text (to avoid token limits in your context window).
+`
+
+	// 2. Build Message History
 	for _, entry := range entries {
 		if entry.Message != nil {
-			// Filter out old system messages if any exist in legacy sessions?
-			// For now, include everything.
+			// Filter out old system messages if any exist in legacy sessions
+			if entry.Message.Role == store.RoleSystem {
+				continue
+			}
 			contextMessages = append(contextMessages, models.AgentMessage{
 				Role:    entry.Message.Role,
 				Content: entry.Message.Content,
@@ -108,7 +129,8 @@ func stepCallModel(ctx context.Context, sess store.Session, modelName string, mo
 		}
 	}
 
-	stream, err := model.Stream(ctx, modelName, contextMessages)
+	// 3. Call Stream with instructions separated
+	stream, err := model.Stream(ctx, modelName, agentInstructions, contextMessages)
 	if err != nil {
 		return fmt.Errorf("model stream error: %w", err)
 	}
@@ -130,14 +152,17 @@ func stepExecuteTools(ctx context.Context, sess store.Session, modelName string,
 	for _, toolCall := range toolCalls {
 		toolName := toolCall.ToolUse.Name
 		var resultMsg string
+		var isError bool
 
 		if toolName == sandbox.ToolNameRunIPythonCell {
 			if sbMgr == nil {
 				resultMsg = "Error: Sandbox manager not available."
+				isError = true
 			} else {
 				code, ok := toolCall.ToolUse.Input["code"].(string)
 				if !ok {
 					resultMsg = "Error: 'code' argument is required and must be a string."
+					isError = true
 				} else {
 					slog.Info("Executing sandbox cell", "sessionID", sess.ID())
 
@@ -152,6 +177,7 @@ func stepExecuteTools(ctx context.Context, sess store.Session, modelName string,
 					if err != nil {
 						resultMsg = fmt.Sprintf("Error executing cell: %v", err)
 						slog.Error("Sandbox execution failed", "error", err)
+						isError = true
 					} else {
 						// Format result
 						if res.Output != "" {
@@ -175,6 +201,7 @@ func stepExecuteTools(ctx context.Context, sess store.Session, modelName string,
 		} else {
 			resultMsg = fmt.Sprintf("Error: Tool '%s' not found.", toolName)
 			slog.Warn("Unknown tool called", "tool", toolName)
+			isError = true
 		}
 
 		// Append Tool Result
@@ -183,6 +210,7 @@ func stepExecuteTools(ctx context.Context, sess store.Session, modelName string,
 				Type: store.ContentTypeToolResult,
 				ToolResult: &store.ToolResultContent{
 					ToolUseID: toolCall.ToolUse.ID,
+					IsError:   isError,
 					Content:   resultMsg,
 				},
 			},
@@ -225,7 +253,7 @@ func (d *runnerDelegate) PromptModel(ctx context.Context, prompt string) (string
 			},
 		},
 	}
-	stream, err := d.model.Stream(ctx, d.modelName, messages)
+	stream, err := d.model.Stream(ctx, d.modelName, "", messages)
 	if err != nil {
 		return "", err
 	}

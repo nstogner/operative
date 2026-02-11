@@ -13,13 +13,14 @@ import (
 // MockModel for testing
 type MockModel struct {
 	Response string
+	stream   models.ModelStream // Added stream field
 }
 
 func (m *MockModel) List(ctx context.Context) ([]string, error) {
 	return []string{"mock-model"}, nil
 }
 
-func (m *MockModel) Stream(ctx context.Context, modelName string, messages []models.AgentMessage) (models.ModelStream, error) {
+func (m *MockModel) Stream(ctx context.Context, modelName string, instructions string, messages []models.AgentMessage) (models.ModelStream, error) {
 	return &MockStream{
 		Msg: models.AgentMessage{
 			Role: store.RoleAssistant,

@@ -3,8 +3,11 @@ package server
 import (
 	"embed"
 	"encoding/json"
+	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/mariozechner/coding-agent/session/pkg/models"
 	"github.com/mariozechner/coding-agent/session/pkg/runner"
@@ -47,14 +50,17 @@ func (s *Server) Start(addr string) error {
 	// Models
 	mux.HandleFunc("GET /api/models", s.handleListModels)
 
+	// Session Actions
+	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
+
 	// WebSocket
 
 	// WebSocket
 	mux.HandleFunc("/api/sessions/{id}/chat", s.handleChatWebSocket)
 
 	// Static Assets
-	// TODO: Implement proper static file serving with fallback to index.html
-	// For now, let's keep it simple or use a middleware.
+	// Serve static files with fallback to index.html for SPA
+	mux.HandleFunc("/", s.handleStatic)
 
 	s.srv = &http.Server{
 		Addr:    addr,
@@ -63,6 +69,71 @@ func (s *Server) Start(addr string) error {
 
 	slog.Info("Starting web server", "addr", addr)
 	return s.srv.ListenAndServe()
+}
+
+func (s *Server) handleStatic(w http.ResponseWriter, r *http.Request) {
+	// If it's an API request that wasn't matched, return 404
+	// (Though specific API routes are handled by exact matches,
+	// this captures /api/unknown)
+	if len(r.URL.Path) >= 4 && r.URL.Path[:4] == "/api" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Try to serve existing file
+	path := r.URL.Path
+	if path == "/" {
+		path = "index.html"
+	} else if path[0] == '/' {
+		path = path[1:]
+	}
+
+	// Check if file exists in embedded FS
+	f, err := s.distFS.Open("dist/" + path)
+	if err == nil {
+		defer f.Close()
+		// Determine content type (simple version)
+		// ext := filepath.Ext(path)
+		// ...
+		// Better: use http.FileServer if possible, but we are inside a custom handler.
+		// Let's use http.FileServer for the dist folder, but we need to strip prefix?.
+		// Actually, let's just use http.ServeFile from FS if we can.
+		// Since we are using embed.FS, we can use http.FS to create a file system.
+	}
+
+	// Refined approach:
+
+	// Create a file server for "dist" directory
+	distFS, err := fs.Sub(s.distFS, "dist")
+	if err != nil {
+		slog.Error("Failed to verify distfs", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Check if file exists
+	f, err = distFS.Open(path)
+	if err == nil {
+		defer f.Close()
+		stat, _ := f.Stat()
+		if !stat.IsDir() {
+			http.FileServer(http.FS(distFS)).ServeHTTP(w, r)
+			return
+		}
+	}
+
+	// Fallback to index.html
+	index, err := distFS.Open("index.html")
+	if err != nil {
+		slog.Error("Failed to open index.html", "error", err)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	defer index.Close()
+
+	// We need to serve index.html.
+	// http.ServeContent requires ReadSeeker which embed.File implements.
+	http.ServeContent(w, r, "index.html", time.Time{}, index.(io.ReadSeeker))
 }
 
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {

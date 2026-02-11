@@ -270,7 +270,7 @@ func (m *DockerManager) waitForHealth(ctx context.Context, port string) error {
 	// For now, let's just try to dial it with a timeout loop?
 	// A simple TCP dial check is good.
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	ticker := time.NewTicker(500 * time.Millisecond)

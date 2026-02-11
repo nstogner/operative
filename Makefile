@@ -20,6 +20,9 @@ test-integration:
 .PHONY: dev
 dev:
 	# Run Go server and Vite dev server concurrently with cleanup
+	# Check for port conflicts before starting
+	@if lsof -i :8080 -sTCP:LISTEN -t >/dev/null; then echo "Error: Port 8080 is already in use. Please stop the existing process."; exit 1; fi
+	@if lsof -i :5173 -sTCP:LISTEN -t >/dev/null; then echo "Error: Port 5173 is already in use. Please stop the existing process."; exit 1; fi
 	# Load .env if present
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	trap 'kill 0' EXIT; \

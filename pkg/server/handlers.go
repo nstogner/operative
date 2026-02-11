@@ -120,6 +120,15 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.runner.StopSession(r.Context(), id); err != nil {
+		s.errorResponse(w, http.StatusInternalServerError, err)
+		return
+	}
+	s.jsonResponse(w, http.StatusOK, map[string]string{"status": "stopped"})
+}
+
 // --- Models ---
 
 func (s *Server) handleListModels(w http.ResponseWriter, r *http.Request) {

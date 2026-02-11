@@ -1,6 +1,0 @@
-{
-  "id": "83d0cb17-583f-48e6-95ad-17878ed850bf",
-  "name": "sola",
-  "instructions": "You are a innovative python agent",
-  "model": "models/gemini-2.5-flash-lite"
-}

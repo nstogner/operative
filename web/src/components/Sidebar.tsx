@@ -1,13 +1,9 @@
 import { Button } from "./ui/button"
-
+import { NavLink } from "react-router-dom"
 import { LayoutDashboard, Users, MessageSquare } from "lucide-react"
+import { cn } from "@/lib/utils"
 
-interface SidebarProps {
-    currentView: "agents" | "sessions"
-    onChangeView: (view: "agents" | "sessions") => void
-}
-
-export function Sidebar({ currentView, onChangeView }: SidebarProps) {
+export function Sidebar() {
     return (
         <div className="w-64 border-r bg-muted/20 flex flex-col h-full">
             <div className="p-6">
@@ -17,24 +13,50 @@ export function Sidebar({ currentView, onChangeView }: SidebarProps) {
                 </h1>
             </div>
             <div className="px-4 space-y-2">
-                <Button
-                    variant={currentView === "agents" ? "secondary" : "ghost"}
-                    className="w-full justify-start"
-                    onClick={() => onChangeView("agents")}
-                    data-testid="nav-agents"
+                <NavLink
+                    to="/agents"
+                    className={({ isActive }) =>
+                        cn(
+                            "w-full justify-start",
+                            isActive
+                                ? "bg-secondary text-secondary-foreground"
+                                : "ghost hover:bg-accent hover:text-accent-foreground"
+                        )
+                    }
                 >
-                    <Users className="mr-2 h-4 w-4" />
-                    Agents
-                </Button>
-                <Button
-                    variant={currentView === "sessions" ? "secondary" : "ghost"}
-                    className="w-full justify-start"
-                    onClick={() => onChangeView("sessions")}
-                    data-testid="nav-sessions"
+                    {({ isActive }) => (
+                        <Button
+                            variant={isActive ? "secondary" : "ghost"}
+                            className="w-full justify-start"
+                            data-testid="nav-agents"
+                        >
+                            <Users className="mr-2 h-4 w-4" />
+                            Agents
+                        </Button>
+                    )}
+                </NavLink>
+                <NavLink
+                    to="/sessions"
+                    className={({ isActive }) =>
+                        cn(
+                            "w-full justify-start",
+                            isActive
+                                ? "bg-secondary text-secondary-foreground"
+                                : "ghost hover:bg-accent hover:text-accent-foreground"
+                        )
+                    }
                 >
-                    <MessageSquare className="mr-2 h-4 w-4" />
-                    Sessions
-                </Button>
+                    {({ isActive }) => (
+                        <Button
+                            variant={isActive ? "secondary" : "ghost"}
+                            className="w-full justify-start"
+                            data-testid="nav-sessions"
+                        >
+                            <MessageSquare className="mr-2 h-4 w-4" />
+                            Sessions
+                        </Button>
+                    )}
+                </NavLink>
             </div>
         </div>
     )

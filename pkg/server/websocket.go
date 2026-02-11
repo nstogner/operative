@@ -77,6 +77,12 @@ func (s *Server) handleChatWebSocket(w http.ResponseWriter, r *http.Request) {
 				return
 			case eventID := <-updates:
 				if eventID == id {
+					// Refresh session state from disk to see new entries
+					if err := sess.Refresh(); err != nil {
+						slog.Error("Failed to refresh session", "error", err)
+						return
+					}
+
 					if err := s.syncSession(ws, sess, sentIDs); err != nil {
 						slog.Error("Failed (re)sync", "error", err)
 						return

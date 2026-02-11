@@ -54,7 +54,7 @@ func TestIntegration_Gemini(t *testing.T) {
 		},
 	}
 
-	stream, err := model.Stream(ctx, targetModel, msgs)
+	stream, err := model.Stream(ctx, targetModel, "", msgs)
 	if err != nil {
 		t.Fatalf("Stream creation failed: %v", err)
 	}

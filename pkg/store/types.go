@@ -178,6 +178,8 @@ type SessionInfo struct {
 	Path         string
 	Name         string
 	Status       string
+	AgentID      string
+	AgentName    string
 	Created      time.Time
 	Modified     time.Time
 	MessageCount int

@@ -54,6 +54,8 @@ make dev
 -   Frontend: `http://localhost:5173`
 -   Backend: `http://localhost:8080`
 
+You need to re-run `make dev` after you make changes to the Go program.
+
 #### Production Build
 Build the frontend and embed it into a single Go binary.
 ```bash

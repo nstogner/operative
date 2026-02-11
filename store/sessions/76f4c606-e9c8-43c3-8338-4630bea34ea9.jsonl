@@ -1,3 +1,0 @@
-{"type":"session","id":"76f4c606-e9c8-43c3-8338-4630bea34ea9","agent_id":"default","version":1,"timestamp":"2026-02-09T10:50:08.044959-05:00"}
-{"type":"message","id":"be67373e-5437-4886-ab36-91d34e1d810f","parent_id":null,"timestamp":"2026-02-09T10:50:08.044959-05:00","message":{"role":"system","content":[{"type":"text","text":{"content":"You are a helpful coding assistant. You are an expert in Go and software architecture. Always use Markdown."}}]}}
-{"type":"message","id":"7ae82af1-83e1-4a78-b982-df1954c56fa3","parent_id":"be67373e-5437-4886-ab36-91d34e1d810f","timestamp":"2026-02-09T10:50:15.727484-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"hi\n"}}]}}

@@ -12,6 +12,7 @@ export interface SessionInfo {
     Status: string
     Created: string
     Modified: string
+    AgentName?: string
     // Add other fields as needed
 }
 

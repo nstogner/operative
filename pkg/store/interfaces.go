@@ -111,6 +111,10 @@ type Session interface {
 	// GetTree returns the full session as a hierarchical tree structure.
 	GetTree() ([]TreeNode, error)
 
+	// Refresh reloads the session state from the underlying storage.
+	// This is useful when multiple processes or goroutines are modifying the session.
+	Refresh() error
+
 	// Close releases any resources (like file handles) held by the session.
 	Close() error
 }

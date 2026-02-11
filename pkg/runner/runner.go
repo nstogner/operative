@@ -57,3 +57,11 @@ func (r *Runner) Start(ctx context.Context) error {
 		}
 	}
 }
+
+// StopSession marks a session as ended and stops its sandbox.
+func (r *Runner) StopSession(ctx context.Context, sessionID string) error {
+	if err := r.manager.SetSessionStatus(sessionID, store.SessionStatusEnded); err != nil {
+		return err
+	}
+	return r.sandboxManager.Stop(ctx, sessionID)
+}

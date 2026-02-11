@@ -6,6 +6,8 @@ import { Button } from "./ui/button"
 import { Send } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar"
 import ReactMarkdown from "react-markdown"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
 interface ChatWindowProps {
     sessionId: string
@@ -38,35 +40,65 @@ export function ChatWindow({ sessionId }: ChatWindowProps) {
     useEffect(() => {
         if (!sessionId) return
 
-        // Construct WS URL
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-        const host = window.location.host
-        const url = `${protocol}//${host}/api/sessions/${sessionId}/chat`
+        // Clear messages when switching sessions
+        setMessages([])
 
-        const ws = new WebSocket(url)
-        wsRef.current = ws
+        let ws: WebSocket | null = null
+        let timeoutId: NodeJS.Timeout
 
-        ws.onopen = () => setIsConnected(true)
-        ws.onclose = () => setIsConnected(false)
-        ws.onmessage = (event) => {
-            const entry = JSON.parse(event.data)
-            // Check if entry is a message
-            if (entry.message) {
-                setMessages((prev) => {
-                    // Avoid duplicates if ID matches?
-                    // Simple append for now as backend streaming might send diffs or full entries
-                    // Backend syncSession sends unchecked entries.
-                    // Helper to check duplicates
-                    if (prev.find(m => JSON.stringify(m) === JSON.stringify(entry.message))) {
-                        return prev
-                    }
-                    return [...prev, entry.message]
-                })
+        const connect = () => {
+            // Construct WS URL
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
+            const host = window.location.host
+            const url = `${protocol}//${host}/api/sessions/${sessionId}/chat`
+
+            ws = new WebSocket(url)
+            wsRef.current = ws
+
+            ws.onopen = () => {
+                setIsConnected(true)
+                // Re-fetch history on reconnect to ensure we didn't miss anything while disconnected
+                fetch(`/api/sessions/${sessionId}`)
+                    .then((res) => res.json())
+                    .then((data) => {
+                        if (data.entries) {
+                            const history = data.entries
+                                .filter((e: any) => e.message)
+                                .map((e: any) => e.message)
+                            setMessages(history)
+                        }
+                    })
+            }
+
+            ws.onclose = () => {
+                setIsConnected(false)
+                // Retry connection after 3s
+                timeoutId = setTimeout(connect, 3000)
+            }
+
+            ws.onmessage = (event) => {
+                const entry = JSON.parse(event.data)
+                // Check if entry is a message
+                if (entry.message) {
+                    setMessages((prev) => {
+                        // Avoid duplicates if ID matches?
+                        // Simple append for now as backend streaming might send diffs or full entries
+                        // Backend syncSession sends unchecked entries.
+                        // Helper to check duplicates
+                        if (prev.find(m => JSON.stringify(m) === JSON.stringify(entry.message))) {
+                            return prev
+                        }
+                        return [...prev, entry.message]
+                    })
+                }
             }
         }
 
+        connect()
+
         return () => {
-            ws.close()
+            if (ws) ws.close()
+            clearTimeout(timeoutId)
         }
     }, [sessionId])
 
@@ -134,12 +166,32 @@ function MessageItem({ message }: { message: Message }) {
                 <AvatarFallback>{isUser ? "U" : "AI"}</AvatarFallback>
                 <AvatarImage src={isUser ? "" : "/bot-avatar.png"} />
             </Avatar>
-            <div className={`flex-1 rounded-lg p-3 ${isUser ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <div
+                className={`flex-1 rounded-lg p-3 ${isUser ? "bg-primary text-primary-foreground" : "bg-muted"}`}
+                data-testid={isUser ? "msg-user" : "msg-assistant"}
+            >
                 {message.content.map((c: Content, i: number) => {
                     if (c.text) {
                         return <ReactMarkdown key={i} className="prose dark:prose-invert break-words">{c.text.content}</ReactMarkdown>
                     }
                     if (c.tool_use) {
+                        if (c.tool_use.name === "run_ipython_cell") {
+                            const code = c.tool_use.input.code as string
+                            return (
+                                <div key={i} className="mt-2 rounded-md overflow-hidden border border-border">
+                                    <div className="bg-muted px-4 py-2 text-xs font-mono border-b border-border flex items-center justify-between">
+                                        <span>Python Cell</span>
+                                    </div>
+                                    <SyntaxHighlighter
+                                        language="python"
+                                        style={vscDarkPlus}
+                                        customStyle={{ margin: 0, borderRadius: 0 }}
+                                    >
+                                        {code}
+                                    </SyntaxHighlighter>
+                                </div>
+                            )
+                        }
                         return (
                             <div key={i} className="text-xs font-mono bg-black/10 p-2 rounded mt-2">
                                 <div>Tool: {c.tool_use.name}</div>

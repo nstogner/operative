@@ -21,7 +21,7 @@ type ModelProvider interface {
 	List(ctx context.Context) ([]string, error)
 
 	// Stream sends a context to the LLM and returns a stream of events/messages.
-	Stream(ctx context.Context, modelName string, messages []AgentMessage) (ModelStream, error)
+	Stream(ctx context.Context, modelName string, instructions string, messages []AgentMessage) (ModelStream, error)
 }
 
 // ModelStream abstracts the stream of responses from the model.

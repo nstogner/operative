@@ -1,60 +1,49 @@
 {
   "sessions": [
     {
-      "id": "8cb9b04e-77cb-4298-aa98-2d34622a4d48",
-      "path": "store/sessions/8cb9b04e-77cb-4298-aa98-2d34622a4d48.jsonl",
+      "id": "8d7e86a2-4132-44ed-a726-868c9d3ba918",
+      "path": "/Users/nick/scratch/ctx/store/sessions/8d7e86a2-4132-44ed-a726-868c9d3ba918.jsonl",
       "status": "active",
-      "created": "2026-02-09T10:43:10.442841-05:00",
-      "modified": "2026-02-09T10:43:10.442841-05:00"
+      "agent_id": "default",
+      "agent_name": "Default Agent",
+      "created": "2026-02-10T21:03:52.519016-05:00",
+      "modified": "2026-02-10T21:03:52.519016-05:00"
     },
     {
-      "id": "c450d8b6-278d-401f-8f22-4a847ea00237",
-      "path": "store/sessions/c450d8b6-278d-401f-8f22-4a847ea00237.jsonl",
+      "id": "877e55d4-428b-4352-b03f-85faf08eb2c6",
+      "path": "/Users/nick/scratch/ctx/store/sessions/877e55d4-428b-4352-b03f-85faf08eb2c6.jsonl",
       "status": "active",
-      "created": "2026-02-09T10:44:02.272916-05:00",
-      "modified": "2026-02-09T10:44:02.272916-05:00"
+      "agent_id": "default",
+      "agent_name": "Default Agent",
+      "created": "2026-02-10T21:08:42.44496-05:00",
+      "modified": "2026-02-10T21:08:42.44496-05:00"
     },
     {
-      "id": "60d430f9-4bb8-48c3-9dad-8567f5793a5b",
-      "path": "store/sessions/60d430f9-4bb8-48c3-9dad-8567f5793a5b.jsonl",
+      "id": "e6ac25e8-b9d2-4fcd-b145-7bd83df06d85",
+      "path": "/Users/nick/scratch/ctx/store/sessions/e6ac25e8-b9d2-4fcd-b145-7bd83df06d85.jsonl",
       "status": "active",
-      "created": "2026-02-09T10:45:07.128313-05:00",
-      "modified": "2026-02-09T10:45:07.128313-05:00"
+      "agent_id": "default",
+      "agent_name": "Default Agent",
+      "created": "2026-02-10T21:10:22.159954-05:00",
+      "modified": "2026-02-10T21:10:22.159954-05:00"
     },
     {
-      "id": "76f4c606-e9c8-43c3-8338-4630bea34ea9",
-      "path": "store/sessions/76f4c606-e9c8-43c3-8338-4630bea34ea9.jsonl",
-      "status": "ended",
-      "created": "2026-02-09T10:50:08.044959-05:00",
-      "modified": "2026-02-09T10:50:08.044959-05:00"
+      "id": "53e66bda-6328-48dc-ba51-809e18f4f589",
+      "path": "/Users/nick/scratch/ctx/store/sessions/53e66bda-6328-48dc-ba51-809e18f4f589.jsonl",
+      "status": "active",
+      "agent_id": "c919f9c8-8e5b-42e8-83b3-d761c270674d",
+      "agent_name": "Test",
+      "created": "2026-02-10T21:11:40.777121-05:00",
+      "modified": "2026-02-10T21:11:40.777121-05:00"
     },
     {
-      "id": "435657d4-a3eb-4dde-ad43-5cd4457fe904",
-      "path": "/Users/nick/scratch/ctx/store/sessions/435657d4-a3eb-4dde-ad43-5cd4457fe904.jsonl",
+      "id": "c41c8902-54e4-459d-8ae0-a8e44e8c1cc5",
+      "path": "/Users/nick/scratch/ctx/store/sessions/c41c8902-54e4-459d-8ae0-a8e44e8c1cc5.jsonl",
       "status": "active",
-      "created": "2026-02-09T21:11:11.02326-05:00",
-      "modified": "2026-02-09T21:11:11.02326-05:00"
-    },
-    {
-      "id": "e70c5c68-8a93-4ba4-afd9-a728d4aa24d4",
-      "path": "/Users/nick/scratch/ctx/store/sessions/e70c5c68-8a93-4ba4-afd9-a728d4aa24d4.jsonl",
-      "status": "active",
-      "created": "2026-02-09T21:17:30.992974-05:00",
-      "modified": "2026-02-09T21:17:30.992974-05:00"
-    },
-    {
-      "id": "117605da-2dab-4bf4-be66-3720807dd914",
-      "path": "/Users/nick/scratch/ctx/store/sessions/117605da-2dab-4bf4-be66-3720807dd914.jsonl",
-      "status": "active",
-      "created": "2026-02-09T21:29:29.65642-05:00",
-      "modified": "2026-02-09T21:29:29.65642-05:00"
-    },
-    {
-      "id": "98a13485-47eb-44d5-80ff-4c1866b9cdcb",
-      "path": "/Users/nick/scratch/ctx/store/sessions/98a13485-47eb-44d5-80ff-4c1866b9cdcb.jsonl",
-      "status": "active",
-      "created": "2026-02-09T21:29:42.753594-05:00",
-      "modified": "2026-02-09T21:29:42.753594-05:00"
+      "agent_id": "c919f9c8-8e5b-42e8-83b3-d761c270674d",
+      "agent_name": "Test",
+      "created": "2026-02-10T21:23:01.37412-05:00",
+      "modified": "2026-02-10T21:23:01.37412-05:00"
     }
   ]
 }

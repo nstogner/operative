@@ -1,6 +1,7 @@
 package jsonl
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -374,5 +375,55 @@ func (s *Session) writeLine(v any) error {
 	if _, err := s.fileHandle.Write(append(data, '\n')); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (s *Session) Refresh() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Reset file pointer to start
+	if _, err := s.fileHandle.Seek(0, 0); err != nil {
+		return err
+	}
+
+	scanner := bufio.NewScanner(s.fileHandle)
+
+	// Skip header (first line)
+	if scanner.Scan() {
+		// Verify header logic? Or just skip.
+		// Constructing s.header happens in loadEntries usually.
+		// Let's re-parse just in case version changed? Unlikely.
+	}
+
+	var lastID string
+	// Re-read assignments
+	for scanner.Scan() {
+		var e store.Entry
+		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+			continue // skip bad lines
+		}
+		// Update or add
+		s.entries[e.ID] = e
+		lastID = e.ID
+
+		if e.Type == store.TypeLabel && e.Label != nil {
+			s.labels[e.Label.TargetID] = e.Label.Label
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	// Update leaf to the last read ID.
+	// Note: If we added entries in memory that aren't on disk yet, this might overrule them?
+	// But in this architecture, we append to file immediately.
+	// However, if we are in the middle of a transaction...
+	// Ideally Refresh is called when we know there are external updates.
+	if lastID != "" {
+		s.leafID = lastID
+	}
+
 	return nil
 }

@@ -1,3 +1,0 @@
-{"type":"session","id":"ac379b51-da13-465b-823e-6c94d31b9c13","version":1,"timestamp":"2026-02-07T21:54:16.798568-05:00"}
-{"type":"message","id":"81acd755-f90f-4e33-8b2d-aeb7d0892bf2","parent_id":null,"timestamp":"2026-02-07T21:54:21.928551-05:00","message":{"role":"user","content":[{"type":"text","text":{"content":"Hey\n"}}]}}
-{"type":"message","id":"1db7f27f-7af7-4800-91f5-cdc2a999ad94","parent_id":"81acd755-f90f-4e33-8b2d-aeb7d0892bf2","timestamp":"2026-02-07T21:54:22.576408-05:00","message":{"role":"assistant","content":[{"type":"text","text":{"content":"Hi there! How can I help you today?"}}]}}

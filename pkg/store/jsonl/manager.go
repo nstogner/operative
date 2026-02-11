@@ -81,11 +81,13 @@ type Index struct {
 }
 
 type SessionMeta struct {
-	ID       string    `json:"id"`
-	Path     string    `json:"path"`
-	Status   string    `json:"status"`
-	Created  time.Time `json:"created"`
-	Modified time.Time `json:"modified"`
+	ID        string    `json:"id"`
+	Path      string    `json:"path"`
+	Status    string    `json:"status"`
+	AgentID   string    `json:"agent_id"`
+	AgentName string    `json:"agent_name"`
+	Created   time.Time `json:"created"`
+	Modified  time.Time `json:"modified"`
 }
 
 func (m *Manager) updateIndex(meta SessionMeta) error {
@@ -179,7 +181,7 @@ func (m *Manager) NewSession(agentID, parentSessionID string) (store.Session, er
 	if err != nil {
 		// If requesting "default" and it doesn't exist, try to find ANY agent or create one.
 		if agentID == "default" {
-			agents, listErr := m.ListAgents()
+			agents, listErr := m.listAgentsLocked()
 			if listErr == nil && len(agents) > 0 {
 				// Use the first available agent
 				agent = &agents[0]
@@ -192,9 +194,9 @@ func (m *Manager) NewSession(agentID, parentSessionID string) (store.Session, er
 					ID:           "default",
 					Name:         "Default Agent",
 					Instructions: "You are a helpful assistant.",
-					Model:        "models/gemini-2.5-flash-latest", // Use a sensible default
+					Model:        "models/gemini-2.0-flash", // Use a sensible default
 				}
-				if createErr := m.NewAgent(newDefault); createErr != nil {
+				if createErr := m.newAgentLocked(newDefault); createErr != nil {
 					return nil, fmt.Errorf("failed to create default agent: %w", createErr)
 				}
 				agent = newDefault
@@ -245,11 +247,13 @@ func (m *Manager) NewSession(agentID, parentSessionID string) (store.Session, er
 
 	// Update Index
 	meta := SessionMeta{
-		ID:       id,
-		Path:     path,
-		Status:   store.SessionStatusActive,
-		Created:  now,
-		Modified: now,
+		ID:        id,
+		Path:      path,
+		Status:    store.SessionStatusActive,
+		AgentID:   agent.ID,
+		AgentName: agent.Name,
+		Created:   now,
+		Modified:  now,
 	}
 	if err := m.updateIndex(meta); err != nil {
 		slog.Error("Failed to update session index", "error", err)
@@ -378,11 +382,13 @@ func (m *Manager) ListSessions() ([]store.SessionInfo, error) {
 	var infos []store.SessionInfo
 	for _, meta := range metas {
 		infos = append(infos, store.SessionInfo{
-			ID:       meta.ID,
-			Path:     meta.Path,
-			Status:   meta.Status,
-			Created:  meta.Created,
-			Modified: meta.Modified,
+			ID:        meta.ID,
+			Path:      meta.Path,
+			Status:    meta.Status,
+			AgentID:   meta.AgentID,
+			AgentName: meta.AgentName,
+			Created:   meta.Created,
+			Modified:  meta.Modified,
 		})
 	}
 
@@ -395,10 +401,36 @@ func (m *Manager) ListSessions() ([]store.SessionInfo, error) {
 
 // Agent Methods
 
-func (m *Manager) NewAgent(a *store.Agent) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+// Internal helper without locking
+func (m *Manager) listAgentsLocked() ([]store.Agent, error) {
+	// Ensure agent dir exists
+	if _, err := os.Stat(m.agentDir); os.IsNotExist(err) {
+		return []store.Agent{}, nil
+	}
 
+	entries, err := os.ReadDir(m.agentDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var agents []store.Agent
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+			data, err := os.ReadFile(filepath.Join(m.agentDir, e.Name()))
+			if err != nil {
+				continue // Skip bad files
+			}
+			var a store.Agent
+			if err := json.Unmarshal(data, &a); err == nil {
+				agents = append(agents, a)
+			}
+		}
+	}
+	return agents, nil
+}
+
+// Internal helper without locking
+func (m *Manager) newAgentLocked(a *store.Agent) error {
 	if a.ID == "" {
 		a.ID = uuid.New().String()
 	}
@@ -410,6 +442,12 @@ func (m *Manager) NewAgent(a *store.Agent) error {
 	}
 
 	return os.WriteFile(path, data, 0644)
+}
+
+func (m *Manager) NewAgent(a *store.Agent) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.newAgentLocked(a)
 }
 
 func (m *Manager) UpdateAgent(a *store.Agent) error {
@@ -448,31 +486,7 @@ func (m *Manager) DeleteAgent(id string) error {
 func (m *Manager) ListAgents() ([]store.Agent, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-
-	// Ensure agent dir exists
-	if _, err := os.Stat(m.agentDir); os.IsNotExist(err) {
-		return []store.Agent{}, nil
-	}
-
-	entries, err := os.ReadDir(m.agentDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var agents []store.Agent
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
-			data, err := os.ReadFile(filepath.Join(m.agentDir, e.Name()))
-			if err != nil {
-				continue // Skip bad files
-			}
-			var a store.Agent
-			if err := json.Unmarshal(data, &a); err == nil {
-				agents = append(agents, a)
-			}
-		}
-	}
-	return agents, nil
+	return m.listAgentsLocked()
 }
 
 func (m *Manager) GetAgent(id string) (*store.Agent, error) {

@@ -6,7 +6,10 @@ import { Plus, Edit, Trash } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog"
 import { AgentForm } from "./AgentForm"
 
+import { useNavigate } from "react-router-dom"
+
 export function AgentList() {
+    const navigate = useNavigate()
     const [agents, setAgents] = useState<Agent[]>([])
     const [isDialogOpen, setIsDialogOpen] = useState(false)
     const [editingAgent, setEditingAgent] = useState<Agent | undefined>(undefined)
@@ -20,6 +23,20 @@ export function AgentList() {
     useEffect(() => {
         fetchAgents()
     }, [])
+
+    const handleStartSession = (agentId: string) => {
+        fetch("/api/sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ agent_id: agentId }),
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                if (data.id) {
+                    navigate(`/sessions/${data.id}`)
+                }
+            })
+    }
 
     const handleCreate = (agent: Partial<Agent>) => {
         fetch("/api/agents", {
@@ -82,6 +99,9 @@ export function AgentList() {
                             </CardDescription>
                             <div className="text-xs text-muted-foreground mb-4 font-mono">{agent.model}</div>
                             <div className="flex gap-2 justify-end">
+                                <Button variant="secondary" size="sm" onClick={() => handleStartSession(agent.id)}>
+                                    Chat
+                                </Button>
                                 <Button variant="outline" size="sm" onClick={() => openEdit(agent)} data-testid={`btn-edit-agent-${agent.id}`}>
                                     <Edit className="h-4 w-4" />
                                 </Button>
