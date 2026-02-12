@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package sandbox.v1;
+
+option go_package = "github.com/nstogner/operative/pkg/sandbox/api;sandboxv1";
+
+service Sandbox {
+  // RunStream establishes a bidirectional stream for executing code and receiving events.
+  rpc RunStream(stream ClientMessage) returns (stream ServerMessage);
+}
+
+// ClientMessage is a message sent from the Go agent to the Python sandbox.
+message ClientMessage {
+  oneof payload {
+    RunCellRequest run_cell = 1;
+    PromptModelResponse prompt_model_response = 2;
+    CancelRequest cancel = 3;
+  }
+}
+
+// ServerMessage is a message sent from the Python sandbox to the Go agent.
+message ServerMessage {
+  oneof payload {
+    RunCellResult run_cell_result = 1; // Final result of a cell execution
+    Output output = 2;                 // Streaming output (stdout/stderr)
+    PromptModelRequest prompt_model = 3;
+    PromptSelfRequest prompt_self = 4;
+  }
+}
+
+message RunCellRequest {
+  string code = 1;
+}
+
+message RunCellResult {
+  string output = 1; // Combined output (legacy support)
+  string stdout = 2; // Combined stdout
+  string stderr = 3; // Combined stderr
+  bool success = 4;
+}
+
+message Output {
+  string text = 1;
+  bool is_stderr = 2;
+}
+
+message PromptModelRequest {
+  string prompt = 1;
+  string id = 2; // Correlation ID
+}
+
+message PromptModelResponse {
+  string response = 1;
+  string id = 2; // Correlation ID
+}
+
+message PromptSelfRequest {
+  string message = 1;
+}
+
+message CancelRequest {}
